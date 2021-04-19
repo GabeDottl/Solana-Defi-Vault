@@ -78,15 +78,21 @@ impl AddPacked for ProgramTest {
 // }
 
 // Based on Record functional test: https://github.com/solana-labs/solana-program-library/blob/2b3f71ead5b81f4ea4a2fd3e4fe9583a6e39b6a4/record/program/tests/functional.rs
+// Unisqap example test https://github.com/dzmitry-lahoda/solana-uniswap-example/blob/a8f108adefe8fa61a947d408a5ce0064b1d8c2df/tests/tests.rs
 #[tokio::test]
 async fn test_token() {
   // Create a SPL token
   // Create a main token account for Alice
   // Create temporary token account for Alice
   let token_program_id = Pubkey::new_unique();
+  // TODO: Make authority derived from program?
   let authority = Keypair::new();
   let seed = "token";
-  let account = Pubkey::create_with_seed(&authority.pubkey(), seed, &token_program_id).unwrap();
+  let mint_a = Keypair::new();
+  let account_alice = Keypair::new();
+  let account_alice_temp = Keypair::new();
+
+  // let account = Pubkey::create_with_seed(&authority.pubkey(), seed, &token_program_id).unwrap();
   let mut program_test = ProgramTest::new(
     "token_test",
     token_program_id,
@@ -96,95 +102,78 @@ async fn test_token() {
   // Start the test client
   let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
 
-  let account_space = 1;
-  let mut transaction = Transaction::new_signed_with_payer(
+  // CREATE Mint A.
+  let account_space = spl_token::state::Mint::LEN;
+  let mut transaction = Transaction::new_with_payer(
     &[
-      system_instruction::create_account_with_seed(
+      system_instruction::create_account(
         &payer.pubkey(),
-        &account,
-        &authority.pubkey(),
-        seed,
+        &mint_a.pubkey(),
         1.max(Rent::default().minimum_balance(account_space)),
-        account_space as u64,
-        &token_program_id,
+        spl_token::state::Mint::LEN as u64,
+        &spl_token::id(),
       ),
-      // instruction::initialize(&account.pubkey(), &authority.pubkey()),
-      // instruction::write(
-      //     &account.pubkey(),
-      //     &authority.pubkey(),
-      //     0,
-      //     data.try_to_vec().unwrap(),
-      // ),
+      spl_token::instruction::initialize_mint(
+        &spl_token::id(),
+        &mint_a.pubkey(),
+        &payer.pubkey(),
+        None, // Freeze authority
+        6,
+      )
+      .unwrap(),
     ],
     Some(&payer.pubkey()),
-    &[&payer, &authority],
-    recent_blockhash,
   );
-  // banks_client.process_transaction(transaction).await;
-
-  // transaction.sign(&[&payer], recent_blockhash);
-  // assert_eq!(true, false);
+  transaction.sign(&[&payer, &mint_a], recent_blockhash);
+  // Create mint:
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
-  //   invoke(
-  //     &spl_token::instruction::initialize_account(
-  //         token_program_info.key,
-  //         deposit_account_info.key,
-  //         deposit_token_mint_info.key,
-  //         authority_info.key,
-  //     )
-  //     .unwrap(),
-  //     &[
-  //         token_program_info.clone(),
-  //         deposit_account_info.clone(),
-  //         deposit_token_mint_info.clone(),
-  //         authority_info.clone(),
-  //         rent_info.clone(),
-  //     ],
-  // )?;
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      // Create Alice's account & transfer 1000 $A.
+      system_instruction::create_account(
+        &payer.pubkey(),
+        &account_alice.pubkey(),
+        1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
+        spl_token::state::Account::LEN as u64,
+        &spl_token::id(),
+      ),
+      spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &account_alice.pubkey(),
+        &mint_a.pubkey(),
+        &authority.pubkey(),
+      )
+      .unwrap(),
+      spl_token::instruction::mint_to(
+        &spl_token::id(),
+        &mint_a.pubkey(),
+        &account_alice.pubkey(),
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        1000,
+      )
+      .unwrap(),
+      // Create Alice's temp account.
+      system_instruction::create_account(
+        &payer.pubkey(),
+        &account_alice_temp.pubkey(),
+        1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
+        spl_token::state::Account::LEN as u64,
+        &spl_token::id(),
+      ),
+      spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &account_alice_temp.pubkey(),
+        &mint_a.pubkey(),
+        &authority.pubkey(),
+      )
+      .unwrap(),
+    ],
+    Some(&payer.pubkey()),
+  );
 
-  // invoke(
-  //     &spl_token::instruction::initialize_mint(
-  //         &spl_token::id(),
-  //         token_pass_mint_info.key,
-  //         authority_info.key,
-  //         None,
-  //         deposit_token_mint.decimals,
-  //     )
-  //     .unwrap(),
-  //     &[
-  //         token_program_info.clone(),
-  //         token_pass_mint_info.clone(),
-  //         rent_info.clone(),
-  //     ],
-  // )?;
-
-  // invoke(
-  //     &spl_token::instruction::initialize_mint(
-  //         &spl_token::id(),
-  //         token_fail_mint_info.key,
-  //         authority_info.key,
-  //         None,
-  //         deposit_token_mint.decimals,
-  //     )
-  //     .unwrap(),
-  //     &[
-  //         token_program_info.clone(),
-  //         token_fail_mint_info.clone(),
-  //         rent_info.clone(),
-  //     ],
-  // )?;
-
-  //   let mut transaction = Transaction::new_with_payer(
-  //     &[Instruction {
-  //       token_program_id,
-  //       accounts: vec![AccountMeta::new(payer.pubkey(), false)],
-  //       data: vec![0, 2, 3],
-  //     }],
-  //     Some(&payer.pubkey()),
-  //   );
-  //   transaction.sign(&[&payer], recent_blockhash);
-  //   // assert_eq!(true, false);
-  //   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+  transaction.sign(&[&payer, &account_alice, &account_alice_temp], recent_blockhash);
+  assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 }
 
 // #[tokio::test]
