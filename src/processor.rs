@@ -85,7 +85,7 @@ impl Processor {
     )?;
 
     msg!("Calling the token program to transfer token account ownership...");
-    msg!("Token program: {}. Transferring ownership {}->{}", token_program.key, initializer.key, pda);
+    msg!("Token program: {}. Transferring ownership {} -> {}", token_program.key, initializer.key, pda);
     invoke(
       &owner_change_ix,
       &[
