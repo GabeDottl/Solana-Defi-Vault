@@ -1524,6 +1524,7 @@ version = "0.1.0"
 dependencies = [
  "arrayref",
  "assert_matches",
+ "num_enum",
  "solana-program",
  "solana-program-test",
  "solana-sdk",

@@ -1,32 +1,77 @@
+use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
+use num_enum::TryFromPrimitive;
 use solana_program::{
   program_error::ProgramError,
   program_pack::{IsInitialized, Pack, Sealed},
   pubkey::Pubkey,
 };
 
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
+pub const MAX_VC: usize = 10; // Arbitrary
+pub const MAX_DATA: usize = 256; // Arbitrary
 
+// Note: Taken from AccountState:
+// https://docs.rs/spl-token/3.1.0/src/spl_token/state.rs.html#177
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, TryFromPrimitive)]
 pub enum CredentialType {
-  DriversLicense
-  // TODO:
-  // is_uniquely_identifying
+  HeartTokenMinter,
+  DriversLicense, // TODO:
+                  // is_uniquely_identifying
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VerifiedCredential {
   pub type_: CredentialType,
-  pub verifier: Pubkey,
-  pub timestamp_nanos: u64,
-  pub data: Vec<u8>
+  pub verifier_pubkey: Pubkey,
+  // pub timestamp_nanos: u64,
+  // pub data: [u8; MAX_DATA]
   // TODO: Data location & hash.
+}
+
+
+impl VerifiedCredential {
+  pub fn empty() -> VerifiedCredential {
+    VerifiedCredential {
+      type_: CredentialType::HeartTokenMinter,
+      verifier_pubkey: Pubkey::new_from_array([0u8; 32]),
+    }
+  }
+}
+
+impl Sealed for VerifiedCredential {}
+
+impl Pack for VerifiedCredential {
+  const LEN: usize = 1 + 32;
+  fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+    let src = array_ref![src, 0, VerifiedCredential::LEN];
+    let (type_, verifier_pubkey) = array_refs![src, 1, 32];
+    Ok(VerifiedCredential {
+      type_: CredentialType::try_from_primitive(type_[0])
+        .or(Err(ProgramError::InvalidAccountData))?,
+      verifier_pubkey: Pubkey::new_from_array(*verifier_pubkey),
+    })
+  }
+
+  fn pack_into_slice(&self, dst: &mut [u8]) {
+    let dst = array_mut_ref![dst, 0, VerifiedCredential::LEN];
+    let (type_dst, verifier_pubkey_dst) = mut_array_refs![dst, 1, 32];
+
+    let VerifiedCredential {
+      type_,
+      verifier_pubkey,
+    } = self;
+
+    type_dst[0] = *type_ as u8;
+    verifier_pubkey_dst.copy_from_slice(verifier_pubkey.as_ref());
+  }
 }
 
 pub struct HeartToken {
   // ID is account ID.
   pub is_initialized: bool,
   pub owner_pubkey: Pubkey,
-  // pub verifiedCredential: Vec<VerifiedCredential>
+  pub verified_credentials: [VerifiedCredential; MAX_VC],
 }
-
 
 impl Sealed for HeartToken {}
 
@@ -37,44 +82,49 @@ impl IsInitialized for HeartToken {
 }
 
 impl Pack for HeartToken {
-  const LEN: usize = 1 + 32;
+  const LEN: usize = 1 + 32 + MAX_VC * VerifiedCredential::LEN;
   fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
     let src = array_ref![src, 0, HeartToken::LEN];
-    let (
-      is_initialized,
-      owner_pubkey,
-    ) = array_refs![src, 1, 32];
+    let (is_initialized, owner_pubkey, verified_credentials_flat) =
+      array_refs![src, 1, 32, MAX_VC * VerifiedCredential::LEN];
     let is_initialized = match is_initialized {
       [0] => false,
       [1] => true,
       _ => return Err(ProgramError::InvalidAccountData),
     };
-
-    Ok(HeartToken {
+    let mut result = HeartToken {
       is_initialized,
       owner_pubkey: Pubkey::new_from_array(*owner_pubkey),
-    })
+      verified_credentials: [VerifiedCredential::empty(); MAX_VC],
+    };
+    for (src, dst) in verified_credentials_flat
+      .chunks(VerifiedCredential::LEN)
+      .zip(result.verified_credentials.iter_mut())
+    {
+      *dst = VerifiedCredential::unpack_from_slice(src).unwrap()
+    }
+    Ok(result)
   }
 
   fn pack_into_slice(&self, dst: &mut [u8]) {
     let dst = array_mut_ref![dst, 0, HeartToken::LEN];
-    let (
-      is_initialized_dst,
-      owner_pubkey_dst,
-    ) = mut_array_refs![dst, 1, 32];
+    let (is_initialized_dst, owner_pubkey_dst, verified_credentials_flat_dst) =
+      mut_array_refs![dst, 1, 32, MAX_VC * VerifiedCredential::LEN];
 
     let HeartToken {
       is_initialized,
-      owner_pubkey
+      owner_pubkey,
+      verified_credentials,
     } = self;
 
     is_initialized_dst[0] = *is_initialized as u8;
     owner_pubkey_dst.copy_from_slice(owner_pubkey.as_ref());
+    for (i, src) in verified_credentials.iter().enumerate() {
+      let dst_array = array_mut_ref![verified_credentials_flat_dst, VerifiedCredential::LEN * i, VerifiedCredential::LEN];
+      src.pack_into_slice(dst_array);
+    }
   }
 }
-
-
-
 
 pub struct Escrow {
   pub is_initialized: bool,
