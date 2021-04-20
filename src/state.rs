@@ -6,6 +6,26 @@ use solana_program::{
 
 use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 
+pub enum CredentialType {
+  DriversLicense
+  // TODO:
+  // is_uniquely_identifying
+}
+
+pub struct VerifiedCredential {
+  pub type_: CredentialType,
+  pub verifier: Pubkey,
+  pub timestamp_nanos: u64,
+  pub data: Vec<u8>
+  // TODO: Data location & hash.
+}
+
+pub struct HeartToken {
+  // ID is account ID.
+  pub owner: Pubkey,
+  pub verifiedCredential: Vec<VerifiedCredential>
+}
+
 pub struct Escrow {
   pub is_initialized: bool,
   pub initializer_pubkey: Pubkey,

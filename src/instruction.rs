@@ -1,4 +1,5 @@
-use crate::error::EscrowError::InvalidInstruction;
+use crate::error::{HeartTokenError, EscrowError::InvalidInstruction};
+use crate::state::{CredentialType, HeartToken, VerifiedCredential};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -7,6 +8,79 @@ use solana_program::{
 };
 use std::convert::TryInto;
 use std::mem::size_of;
+
+pub enum HeartTokenInstruction {
+    /// Creates a
+    CreateHeartToken {
+        heart_token_owner: Pubkey, // Wallet of holder.
+                                   // verified_credentials: Vec<VerifiedCredential>
+    },
+    // RecoverHeartToken {
+    //     heart_token_account: Pubkey, // The account/ID of the HeartToken
+    //     heart_token_owner: Pubkey,  // Wallet of holder.
+    //     verified_credentials: Vec<VerifiedCredential>
+    // },
+    // AddCredentialsToHeartToken {
+    //     heart_token_owner: Pubkey,
+    //     verified_credentials: Vec<VerifiedCredential>
+    // },
+    // SignWithHeartTokens {
+    //     instructions: Vec<Instruction>,
+    //     // constraints: Vec<Constraint>
+    // },
+}
+
+impl HeartTokenInstruction {
+    /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
+    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
+        let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
+
+        Ok(match tag {
+            0 => {
+                let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
+                Self::CreateHeartToken {
+                    heart_token_owner: pubkey,
+                }
+            }
+            _ => return Err(HeartTokenError::InvalidInstruction.into()),
+        })
+    }
+    fn unpack_pubkey(input: &[u8]) -> Result<(Pubkey, &[u8]), ProgramError> {
+        if input.len() >= 32 {
+            let (key, rest) = input.split_at(32);
+            let pk = Pubkey::new(key);
+            Ok((pk, rest))
+        } else {
+            Err(HeartTokenError::InvalidInstruction.into())
+        }
+    }
+
+    fn pack(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(size_of::<Self>());
+        match self {
+            &Self::CreateHeartToken { heart_token_owner } => {
+                buf.push(0);
+                buf.extend_from_slice(heart_token_owner.as_ref());
+            }
+        }
+        buf
+    }
+
+    pub fn create_heart_token(
+        heart_token_program_id: &Pubkey,
+        heart_token_owner: &Pubkey
+    ) -> Result<Instruction, ProgramError> {
+        let accounts = vec![
+            AccountMeta::new(*heart_token_owner, true),
+        ];
+        let data = HeartTokenInstruction::CreateHeartToken { heart_token_owner: *heart_token_owner }.pack();
+        Ok(Instruction {
+            program_id: *heart_token_program_id,
+            accounts,
+            data,
+        })
+    }
+}
 
 pub enum EscrowInstruction {
     /// Starts the trade by creating and populating an escrow account and transferring ownership of the given temp token account to the PDA

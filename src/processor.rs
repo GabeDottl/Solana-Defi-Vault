@@ -9,10 +9,41 @@ use solana_program::{
   sysvar::{rent::Rent, Sysvar},
 };
 
-use crate::{error::EscrowError, instruction::EscrowInstruction, state::Escrow};
+use crate::{error::EscrowError, instruction::{EscrowInstruction, HeartTokenInstruction}, state::{HeartToken, Escrow}};
 
 pub struct Processor;
 impl Processor {
+  // HeartToken Process
+  pub fn process_heart_token(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+  ) -> ProgramResult {
+    let instruction = HeartTokenInstruction::unpack(instruction_data)?;
+
+    match instruction {
+      HeartTokenInstruction::CreateHeartToken { heart_token_owner } => {
+        msg!("Instruction: CreateHeartToken");
+        Self::process_create_heart_token(accounts, heart_token_owner, program_id)
+      }
+    }
+  }
+
+  fn process_create_heart_token(
+    accounts: &[AccountInfo],
+    heart_token_owner: Pubkey,
+    program_id: &Pubkey,
+  ) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+
+    let initializer = next_account_info(account_info_iter)?;
+    if !initializer.is_signer {
+      return Err(ProgramError::MissingRequiredSignature);
+    }
+    Ok(())
+  }
+
+  // Escrow Process
   pub fn process(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
