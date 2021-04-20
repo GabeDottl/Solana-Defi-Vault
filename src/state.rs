@@ -22,9 +22,59 @@ pub struct VerifiedCredential {
 
 pub struct HeartToken {
   // ID is account ID.
-  pub owner: Pubkey,
-  pub verifiedCredential: Vec<VerifiedCredential>
+  pub is_initialized: bool,
+  pub owner_pubkey: Pubkey,
+  // pub verifiedCredential: Vec<VerifiedCredential>
 }
+
+
+impl Sealed for HeartToken {}
+
+impl IsInitialized for HeartToken {
+  fn is_initialized(&self) -> bool {
+    self.is_initialized
+  }
+}
+
+impl Pack for HeartToken {
+  const LEN: usize = 1 + 32;
+  fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+    let src = array_ref![src, 0, HeartToken::LEN];
+    let (
+      is_initialized,
+      owner_pubkey,
+    ) = array_refs![src, 1, 32];
+    let is_initialized = match is_initialized {
+      [0] => false,
+      [1] => true,
+      _ => return Err(ProgramError::InvalidAccountData),
+    };
+
+    Ok(HeartToken {
+      is_initialized,
+      owner_pubkey: Pubkey::new_from_array(*owner_pubkey),
+    })
+  }
+
+  fn pack_into_slice(&self, dst: &mut [u8]) {
+    let dst = array_mut_ref![dst, 0, HeartToken::LEN];
+    let (
+      is_initialized_dst,
+      owner_pubkey_dst,
+    ) = mut_array_refs![dst, 1, 32];
+
+    let HeartToken {
+      is_initialized,
+      owner_pubkey
+    } = self;
+
+    is_initialized_dst[0] = *is_initialized as u8;
+    owner_pubkey_dst.copy_from_slice(owner_pubkey.as_ref());
+  }
+}
+
+
+
 
 pub struct Escrow {
   pub is_initialized: bool,

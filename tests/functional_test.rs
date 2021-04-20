@@ -2,7 +2,7 @@
 
 use {
   assert_matches::*,
-  hearttoken::{entrypoint::process_instruction, instruction::EscrowInstruction},
+  hearttoken::{entrypoint::process_instruction, instruction::{HeartTokenInstruction, EscrowInstruction}},
   solana_program::{
     borsh::get_packed_len,
     instruction::{AccountMeta, Instruction},
@@ -76,9 +76,47 @@ impl AddPacked for ProgramTest {
 //   ProgramTest::new("spl_record", id(), processor!(process_instruction))
 // }
 
+#[tokio::test]
+async fn test_create_heart_token() {
+  let account_alice = Keypair::new();
+  let account_heart_token = Keypair::new();
+  let mut program_test = ProgramTest::new(
+    "heart_token_test",
+    hearttoken::id(),
+    processor!(hearttoken::processor::Processor::process_heart_token),
+  );
+
+  // Start the test client
+  let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+
+  // Create HeartToken.
+  let account_space = spl_token::state::Mint::LEN;
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      system_instruction::create_account(
+        &payer.pubkey(),
+        &account_heart_token.pubkey(),
+        1.max(Rent::default().minimum_balance(hearttoken::state::HeartToken::LEN)),
+        hearttoken::state::HeartToken::LEN as u64,
+        &hearttoken::id(),
+      ),
+      HeartTokenInstruction::create_heart_token(
+        &hearttoken::id(),
+        &account_alice.pubkey(),
+        &account_heart_token.pubkey()
+      )
+      .unwrap(),
+    ],
+    Some(&payer.pubkey()),
+  );
+  transaction.sign(&[&payer, &account_alice, &account_heart_token], recent_blockhash);
+  // Create mint:
+  assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+}
+
 // Based on Record functional test: https://github.com/solana-labs/solana-program-library/blob/2b3f71ead5b81f4ea4a2fd3e4fe9583a6e39b6a4/record/program/tests/functional.rs
 // Unisqap example test https://github.com/dzmitry-lahoda/solana-uniswap-example/blob/a8f108adefe8fa61a947d408a5ce0064b1d8c2df/tests/tests.rs
-#[tokio::test]
+// DO NOT COMMIT XXX: #[tokio::test]
 async fn test_token() {
   // Create a SPL token
   // Create a main token account for Alice
@@ -195,18 +233,27 @@ async fn test_token() {
       &authority.pubkey(),
       &[&&authority.pubkey()],
       100,
-    ).unwrap()],
+    )
+    .unwrap()],
     Some(&payer.pubkey()),
   );
   transaction.sign(&[&payer, &authority], recent_blockhash);
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
   // Verify some data on Alice's temp account for sanity checking & fun.
-  let alice_account_temp_account = banks_client.get_account(account_alice_temp.pubkey()).await.unwrap().expect("Account unretrievable");
+  let alice_account_temp_account = banks_client
+    .get_account(account_alice_temp.pubkey())
+    .await
+    .unwrap()
+    .expect("Account unretrievable");
   assert_eq!(alice_account_temp_account.owner, spl_token::id());
-  let internal_account = spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
+  let internal_account =
+    spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
   assert_eq!(internal_account.owner, account_alice.pubkey());
-  assert_matches!(internal_account.state, spl_token::state::AccountState::Initialized);
+  assert_matches!(
+    internal_account.state,
+    spl_token::state::AccountState::Initialized
+  );
 
   // // Create Escrow account
   let mut transaction = Transaction::new_with_payer(
@@ -244,9 +291,14 @@ async fn test_token() {
   // Create Alice's account with 1000 $A & temp-account for escrow.
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
   // Verify some data on Alice's temp account for sanity checking & fun.
-  let alice_account_temp_account = banks_client.get_account(account_alice_temp.pubkey()).await.unwrap().expect("Account unretrievable");
+  let alice_account_temp_account = banks_client
+    .get_account(account_alice_temp.pubkey())
+    .await
+    .unwrap()
+    .expect("Account unretrievable");
   assert_eq!(alice_account_temp_account.owner, spl_token::id());
-  let internal_account = spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
+  let internal_account =
+    spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
   let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], &hearttoken::id());
 
   // Ensure that the escrow account's ownership

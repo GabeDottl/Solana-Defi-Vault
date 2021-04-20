@@ -10,9 +10,16 @@ use std::convert::TryInto;
 use std::mem::size_of;
 
 pub enum HeartTokenInstruction {
-    /// Creates a
+    /// Creates a HeartToken.
+    ///
+    ///
+    /// Accounts expected:
+    ///
+    /// 0. `[signer]` The account of the owner of the HeartToken.
+    /// 1. `[writable]` The HeartToken account, it will hold all necessary info about the HT.
+    /// 2. `[]` The rent sysvar
     CreateHeartToken {
-        heart_token_owner: Pubkey, // Wallet of holder.
+        // heart_token_owner: Pubkey, // Wallet of holder.
                                    // verified_credentials: Vec<VerifiedCredential>
     },
     // RecoverHeartToken {
@@ -37,9 +44,9 @@ impl HeartTokenInstruction {
 
         Ok(match tag {
             0 => {
-                let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
+                // let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
                 Self::CreateHeartToken {
-                    heart_token_owner: pubkey,
+                    // heart_token_owner: pubkey,
                 }
             }
             _ => return Err(HeartTokenError::InvalidInstruction.into()),
@@ -58,9 +65,9 @@ impl HeartTokenInstruction {
     fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::CreateHeartToken { heart_token_owner } => {
+            &Self::CreateHeartToken {  } => {
                 buf.push(0);
-                buf.extend_from_slice(heart_token_owner.as_ref());
+                // buf.extend_from_slice(heart_token_owner.as_ref());
             }
         }
         buf
@@ -68,12 +75,15 @@ impl HeartTokenInstruction {
 
     pub fn create_heart_token(
         heart_token_program_id: &Pubkey,
-        heart_token_owner: &Pubkey
+        heart_token_owner: &Pubkey,
+        heart_token_account: &Pubkey
     ) -> Result<Instruction, ProgramError> {
         let accounts = vec![
-            AccountMeta::new(*heart_token_owner, true),
+            AccountMeta::new_readonly(*heart_token_owner, true),
+            AccountMeta::new(*heart_token_account, false),
+            AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = HeartTokenInstruction::CreateHeartToken { heart_token_owner: *heart_token_owner }.pack();
+        let data = HeartTokenInstruction::CreateHeartToken { }.pack();
         Ok(Instruction {
             program_id: *heart_token_program_id,
             accounts,

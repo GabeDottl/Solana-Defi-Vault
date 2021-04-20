@@ -9,7 +9,7 @@ use solana_program::{
   sysvar::{rent::Rent, Sysvar},
 };
 
-use crate::{error::EscrowError, instruction::{EscrowInstruction, HeartTokenInstruction}, state::{HeartToken, Escrow}};
+use crate::{error::{HeartTokenError, EscrowError}, instruction::{EscrowInstruction, HeartTokenInstruction}, state::{HeartToken, Escrow}};
 
 pub struct Processor;
 impl Processor {
@@ -22,24 +22,42 @@ impl Processor {
     let instruction = HeartTokenInstruction::unpack(instruction_data)?;
 
     match instruction {
-      HeartTokenInstruction::CreateHeartToken { heart_token_owner } => {
+      HeartTokenInstruction::CreateHeartToken { } => {
         msg!("Instruction: CreateHeartToken");
-        Self::process_create_heart_token(accounts, heart_token_owner, program_id)
+        Self::process_create_heart_token(accounts, program_id)
       }
     }
   }
 
   fn process_create_heart_token(
     accounts: &[AccountInfo],
-    heart_token_owner: Pubkey,
+    // heart_token_owner: Pubkey,
     program_id: &Pubkey,
   ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
-    let initializer = next_account_info(account_info_iter)?;
-    if !initializer.is_signer {
+    let owner = next_account_info(account_info_iter)?;
+    if !owner.is_signer {
       return Err(ProgramError::MissingRequiredSignature);
     }
+
+    let heart_token_account = next_account_info(account_info_iter)?;
+    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+
+    if !rent.is_exempt(heart_token_account.lamports(), heart_token_account.data_len()) {
+      return Err(HeartTokenError::NotRentExempt.into());
+    }
+
+    let mut heart_token_info = HeartToken::unpack_unchecked(&heart_token_account.data.borrow())?;
+    if heart_token_info.is_initialized() {
+      return Err(ProgramError::AccountAlreadyInitialized);
+    }
+    heart_token_info.is_initialized = true;
+    heart_token_info.owner_pubkey = *owner.key;
+
+    // Write the heart_token info to the actual account.
+    HeartToken::pack(heart_token_info, &mut heart_token_account.data.borrow_mut())?;
+
     Ok(())
   }
 
