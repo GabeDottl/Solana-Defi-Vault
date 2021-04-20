@@ -34,11 +34,13 @@ impl Processor {
     program_id: &Pubkey,
   ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
-    let initializer = next_account_info(account_info_iter)?;
 
+    
+    let initializer = next_account_info(account_info_iter)?;
     if !initializer.is_signer {
       return Err(ProgramError::MissingRequiredSignature);
     }
+
     // No need to check owner bc function will fail.
     let temp_token_account = next_account_info(account_info_iter)?;
 
@@ -83,6 +85,7 @@ impl Processor {
     )?;
 
     msg!("Calling the token program to transfer token account ownership...");
+    msg!("Token program: {}. Transferring ownership {}->{}", token_program.key, initializer.key, pda);
     invoke(
       &owner_change_ix,
       &[
@@ -91,6 +94,7 @@ impl Processor {
         token_program.clone(),
       ],
     )?;
+    msg!("Called");
     Ok(())
   }
 }
