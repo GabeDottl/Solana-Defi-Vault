@@ -8,6 +8,69 @@ use solana_program::{
 
 pub const MAX_VC: usize = 10; // Arbitrary
 pub const MAX_DATA: usize = 256; // Arbitrary
+pub const MAX_REQUIRED_CREDENTIALS: usize = 8; // Arbitrary
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SimpleClaimCheck {
+  subject_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
+  issuer_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
+}
+
+// impl SimpleClaimCheck {}
+
+impl Sealed for SimpleClaimCheck {}
+
+impl Pack for SimpleClaimCheck {
+  const LEN: usize = 2 * MAX_REQUIRED_CREDENTIALS * 32;
+  fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
+    let src = array_ref![src, 0, SimpleClaimCheck::LEN];
+    let (subject_required_credentials_flat, issuer_required_credentials_flat) = array_refs![
+      src,
+      MAX_REQUIRED_CREDENTIALS * 32,
+      MAX_REQUIRED_CREDENTIALS * 32
+    ];
+    let mut result = SimpleClaimCheck {
+      subject_required_credentials: [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS],
+      issuer_required_credentials: [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS],
+    };
+    for (src, dst) in subject_required_credentials_flat
+      .chunks(32)
+      .zip(result.subject_required_credentials.iter_mut())
+    {
+      *dst = Pubkey::new(src);
+    }
+    for (src, dst) in issuer_required_credentials_flat
+      .chunks(32)
+      .zip(result.issuer_required_credentials.iter_mut())
+    {
+      *dst = Pubkey::new(src);
+    }
+    Ok(result)
+  }
+
+  fn pack_into_slice(&self, dst: &mut [u8]) {
+    let dst = array_mut_ref![dst, 0, SimpleClaimCheck::LEN];
+    let (subject_required_credentials_dst, issuer_required_credentials_dst) = mut_array_refs![
+      dst,
+      MAX_REQUIRED_CREDENTIALS * 32,
+      MAX_REQUIRED_CREDENTIALS * 32
+    ];
+
+    let SimpleClaimCheck {
+      subject_required_credentials,
+      issuer_required_credentials,
+    } = self;
+
+    for (i, src) in subject_required_credentials.iter().enumerate() {
+      let dst_array = array_mut_ref![subject_required_credentials_dst, 32 * i, 32];
+      dst_array.copy_from_slice(src.as_ref());
+    }
+    for (i, src) in issuer_required_credentials.iter().enumerate() {
+      let dst_array = array_mut_ref![issuer_required_credentials_dst, 32 * i, 32];
+      dst_array.copy_from_slice(src.as_ref());
+    }
+  }
+}
 
 // Note: Taken from AccountState:
 // https://docs.rs/spl-token/3.1.0/src/spl_token/state.rs.html#177
@@ -27,7 +90,6 @@ pub struct VerifiedCredential {
   // pub data: [u8; MAX_DATA]
   // TODO: Data location & hash.
 }
-
 
 impl VerifiedCredential {
   pub fn empty() -> VerifiedCredential {
@@ -101,7 +163,7 @@ impl Pack for HeartToken {
       .chunks(VerifiedCredential::LEN)
       .zip(result.verified_credentials.iter_mut())
     {
-      *dst = VerifiedCredential::unpack_from_slice(src).unwrap()
+      *dst = VerifiedCredential::unpack_from_slice(src).unwrap();
     }
     Ok(result)
   }
@@ -120,7 +182,11 @@ impl Pack for HeartToken {
     is_initialized_dst[0] = *is_initialized as u8;
     owner_pubkey_dst.copy_from_slice(owner_pubkey.as_ref());
     for (i, src) in verified_credentials.iter().enumerate() {
-      let dst_array = array_mut_ref![verified_credentials_flat_dst, VerifiedCredential::LEN * i, VerifiedCredential::LEN];
+      let dst_array = array_mut_ref![
+        verified_credentials_flat_dst,
+        VerifiedCredential::LEN * i,
+        VerifiedCredential::LEN
+      ];
       src.pack_into_slice(dst_array);
     }
   }

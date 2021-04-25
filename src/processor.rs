@@ -9,7 +9,15 @@ use solana_program::{
   sysvar::{rent::Rent, Sysvar},
 };
 
-use crate::{error::{HeartTokenError, EscrowError}, instruction::{EscrowInstruction, HeartTokenInstruction}, state::{HeartToken, Escrow}};
+use std::str::FromStr;
+
+use crate::{
+  error::{EscrowError, HeartTokenError},
+  instruction::{EscrowInstruction, HeartTokenInstruction},
+  state::{CredentialType, Escrow, HeartToken},
+};
+
+pub const GOD_PUBKEY_STR: &str = "5cjmBetNkWYa2ZKZTsTMreNZQNSpwyhDrTVsynJVKZ9C";// "5gREDw2KxWKTceSTCbtQSG32aSnHrxPUUNo1PERZBMTq";
 
 pub struct Processor;
 impl Processor {
@@ -22,11 +30,62 @@ impl Processor {
     let instruction = HeartTokenInstruction::unpack(instruction_data)?;
 
     match instruction {
-      HeartTokenInstruction::CreateHeartToken { } => {
+      HeartTokenInstruction::CreateHeartToken {} => {
         msg!("Instruction: CreateHeartToken");
         Self::process_create_heart_token(accounts, program_id)
       }
+      HeartTokenInstruction::CreateClaimType { claim_check_program_id, check_program_instruction_id } => {
+        msg!("Instruction: CreateClaimType");
+        return Err(HeartTokenError::NotImplemented.into());
+      }
+      HeartTokenInstruction::IssueClaim { claim_type_id, subject } => {
+        msg!("Instruction: IssueClaim");
+        return Err(HeartTokenError::NotImplemented.into());
+      }
+      HeartTokenInstruction::CreateSimpleClaimCheck {subject_required_credentials, issuer_required_credentials} => {
+        msg!("Instruction: CreateSimpleClaimCheck");
+        return Err(HeartTokenError::NotImplemented.into());
+      }
+      HeartTokenInstruction::ExecuteSimpleClaimCheck {claim_type_id} => {
+        msg!("Instruction: ExecuteSimpleClaimCheck");
+        return Err(HeartTokenError::NotImplemented.into());
+      }
     }
+  }
+
+  // fn process_create_simple_claim_check(accounts: &[AccountInfo],
+  //   subject_required_credentials: &[Pubkey],
+  //   issuer_required_credentials:  &[Pubkey],
+  //   program_id: &Pubkey) {
+  //   let account_info_iter = &mut accounts.iter();
+  //   let owner = next_account_info(account_info_iter)?;
+  //   if account.owner != program_id {
+  //     msg!("Invalid owner!");
+  //     return Err(HeartTokenError::InvalidMinter.into());
+  //   }
+  // }
+
+  fn check_minter(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
+    msg!("Account: {}", account.key.to_string());
+    if account.key.to_string() == GOD_PUBKEY_STR {
+      return Ok(());
+    }
+    // Ensure minter account is owned by HeartToken program.
+    if account.owner != program_id {
+      msg!("Invalid owner!");
+      return Err(HeartTokenError::InvalidMinter.into());
+    }
+    // Check that minter has Minter credential.
+    let account_info = HeartToken::unpack_unchecked(&account.data.borrow())?;
+    if !account_info
+      .verified_credentials
+      .iter()
+      .any(|&vc| vc.type_ == CredentialType::HeartTokenMinter)
+    {
+      msg!("No Minter VC!");
+      return Err(HeartTokenError::InvalidMinter.into());
+    }
+    Ok(())
   }
 
   fn process_create_heart_token(
@@ -42,9 +101,16 @@ impl Processor {
     }
 
     let heart_token_account = next_account_info(account_info_iter)?;
-    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    let heart_token_minter = next_account_info(account_info_iter)?;
+    msg!("pub key {}", *heart_token_minter.key);
 
-    if !rent.is_exempt(heart_token_account.lamports(), heart_token_account.data_len()) {
+    Processor::check_minter(heart_token_minter, program_id)?;
+
+    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    if !rent.is_exempt(
+      heart_token_account.lamports(),
+      heart_token_account.data_len(),
+    ) {
       return Err(HeartTokenError::NotRentExempt.into());
     }
 
@@ -84,7 +150,6 @@ impl Processor {
   ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
-    
     let initializer = next_account_info(account_info_iter)?;
     if !initializer.is_signer {
       return Err(ProgramError::MissingRequiredSignature);
@@ -134,7 +199,12 @@ impl Processor {
     )?;
 
     msg!("Calling the token program to transfer token account ownership...");
-    msg!("Token program: {}. Transferring ownership {} -> {}", token_program.key, initializer.key, pda);
+    msg!(
+      "Token program: {}. Transferring ownership {} -> {}",
+      token_program.key,
+      initializer.key,
+      pda
+    );
     invoke(
       &owner_change_ix,
       &[

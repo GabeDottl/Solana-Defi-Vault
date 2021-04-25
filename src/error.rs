@@ -10,6 +10,10 @@ pub enum HeartTokenError {
     InvalidInstruction,
     #[error("Not Rent Exempt")]
     NotRentExempt,
+    #[error("Invalid minter provided")]
+    InvalidMinter,
+    #[error("Not Implemented")]
+    NotImplemented,
 }
 
 impl From<HeartTokenError> for ProgramError {

@@ -2,13 +2,17 @@
 
 use {
   assert_matches::*,
-  hearttoken::{entrypoint::process_instruction, instruction::{HeartTokenInstruction, EscrowInstruction}},
+  hearttoken::{
+    entrypoint::process_instruction,
+    instruction::{EscrowInstruction, HeartTokenInstruction},
+  },
   solana_program::{
     borsh::get_packed_len,
     instruction::{AccountMeta, Instruction},
     program_option::COption,
     program_pack::Pack,
     pubkey::Pubkey,
+    msg,
     rent::Rent,
     system_instruction,
     sysvar::{self},
@@ -76,10 +80,57 @@ impl AddPacked for ProgramTest {
 //   ProgramTest::new("spl_record", id(), processor!(process_instruction))
 // }
 
+// #[tokio::test]
+// async fn test_create_heart_token() {
+//   let account_alice = Keypair::new();
+//   let account_heart_token = Keypair::new();
+//   let mut program_test = ProgramTest::new(
+//     "heart_token_test",
+//     hearttoken::id(),
+//     processor!(hearttoken::processor::Processor::process_heart_token),
+//   );
+
+//   // Start the test client
+//   let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+
+//   // Create HeartToken.
+//   let account_space = spl_token::state::Mint::LEN;
+//   let mut transaction = Transaction::new_with_payer(
+//     &[
+//       system_instruction::create_account(
+//         &payer.pubkey(),
+//         &account_heart_token.pubkey(),
+//         1.max(Rent::default().minimum_balance(hearttoken::state::HeartToken::LEN)),
+//         hearttoken::state::HeartToken::LEN as u64,
+//         &hearttoken::id(),
+//       ),
+//       HeartTokenInstruction::create_heart_token(
+//         &hearttoken::id(),
+//         &account_alice.pubkey(),
+//         &account_heart_token.pubkey()
+//       )
+//       .unwrap(),
+//     ],
+//     Some(&payer.pubkey()),
+//   );
+//   transaction.sign(&[&payer, &account_alice, &account_heart_token], recent_blockhash);
+//   // Create mint:
+//   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+// }
+
 #[tokio::test]
-async fn test_create_heart_token() {
+async fn test_create_heart_minter() {
   let account_alice = Keypair::new();
   let account_heart_token = Keypair::new();
+  // let heart_token_minter = Keypair::new();
+  let keypair: [u8;64] = [
+    107, 254, 121, 199, 233, 104, 91, 98, 219, 230, 11, 238, 73, 88, 242, 134, 198, 227, 13, 235,
+    0, 64, 96, 208, 124, 152, 133, 96, 65, 88, 149, 96, 68, 150, 109, 75, 78, 72, 134, 74, 26, 54,
+    152, 10, 233, 15, 48, 202, 174, 83, 206, 230, 45, 171, 29, 138, 3, 221, 137, 56, 228, 100, 153,
+    203,
+  ];
+  let heart_token_minter = Keypair::from_bytes(&keypair).unwrap();
+  
   let mut program_test = ProgramTest::new(
     "heart_token_test",
     hearttoken::id(),
@@ -88,7 +139,6 @@ async fn test_create_heart_token() {
 
   // Start the test client
   let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
-
   // Create HeartToken.
   let account_space = spl_token::state::Mint::LEN;
   let mut transaction = Transaction::new_with_payer(
@@ -103,13 +153,17 @@ async fn test_create_heart_token() {
       HeartTokenInstruction::create_heart_token(
         &hearttoken::id(),
         &account_alice.pubkey(),
-        &account_heart_token.pubkey()
+        &account_heart_token.pubkey(),
+        &heart_token_minter.pubkey()
       )
       .unwrap(),
     ],
     Some(&payer.pubkey()),
   );
-  transaction.sign(&[&payer, &account_alice, &account_heart_token], recent_blockhash);
+  transaction.sign(
+    &[&payer, &account_alice, &account_heart_token, &heart_token_minter],
+    recent_blockhash,
+  );
   // Create mint:
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 }
