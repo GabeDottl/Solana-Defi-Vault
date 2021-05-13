@@ -49,7 +49,7 @@ impl Processor {
         msg!("Instruction: Withdraw");
         Self::process_transfer(program_id, accounts, amount)
       }
-      _ => return Err(VaultError::InvalidInstruction.into()),
+      // _ => return Err(VaultError::InvalidInstruction.into()),
     }
   }
 
