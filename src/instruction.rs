@@ -1,5 +1,4 @@
 use crate::error::{EscrowError::InvalidInstruction, VaultError};
-use crate::state::{CredentialType, Vault, VerifiedCredential, MAX_REQUIRED_CREDENTIALS};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -10,98 +9,176 @@ use solana_program::{
 use std::convert::TryInto;
 use std::mem::size_of;
 
-use std::iter::Chain;
-use std::slice::Iter;
-
 pub enum VaultInstruction {
-    /// Creates a Vault, similar to a Yearn Vault.
-    /// 
-    /// Laguna Vaults are modeled approximately after Yearn Vaults. A vault is just a lightweight
-    /// asset-container paired with an investment strategy for that asset. The vault only stores
-    /// 
-    /// Laguna Vaults are designed to be highly composable - a vault 
+    /// Creates a Vault.
     ///
+    /// Vaults are designed to be highly composable and don't directly hold any of their
+    /// underlying asset (X) - instead, they just hold the underlying strategy's asset (lX) and then
+    /// wraps it in its own mirror asset (llX) which is returned to the user. The user can redeem
+    /// llX tokens for their underlying X token (plus profits) and will be charged a fixed fee
+    /// against their returned assets.
     ///
-    /// Accounts expected:
+    /// The interaction with a vault looks like the following:
     ///
-    /// 0. `[signer]` The account of the owner of the Vault.
-    /// 1. `[writable]` The Vault account, it will hold all necessary info about the HT.
-    /// 2. `[signer]` The Vault minter
-    /// 3. `[]` The rent sysvar
-    CreateVault {
-        // TODO: Make VaultOwner a credential?
-    // heart_token_owner: Pubkey, // Wallet of holder.
-    // verified_credentials: Vec<VerifiedCredential>
-    },
-
-    /// Creates a new Claim type.
+    /// Deposit:
+    ///   User sends X to Vault, Vault sends X to the strategy and gets back an lX token, which it
+    ///   stores, and then mints a corresponding llX token which it gives to the user.
+    /// Withdraw:
+    ///   User sends llX to Vault, Vault burns the tokens and sends the corresponding lX to the
+    ///   strategy and gets back X tokens, which it forwards to the user, minus a fee.
     ///
+    /// Strategies should be contained within a single program and should implement the
+    /// StrategyInstruction interface below.
     ///
     /// Accounts expected:
-    /// 1. `[writeable]` The storage account.
-    /// 3. `[]` The rent sysvar
-    CreateClaimType {
-        check_program_id: Pubkey,
-        check_program_instruction_id: u8, // data_hash: [u8; DATA_HASH_SIZE]
-                                          // data aggregation? E.g. on_success_program_id
-                                          //
+    /// `[signer]` initializer of the lx token account
+    /// `[writeable]` Vault storage account (vault ID)
+    /// `[]` lX token account
+    /// `[]` The llX Token ID with this program is a mint authority.
+    /// `[]` The strategy program's pubkey.
+    /// `[]` The rent sysvar
+    ConfigureVault {
+        // TODO: Governance address, strategist address, keeper address.
+        // TODO: Withdrawal fee.
+        // https://github.com/yearn/yearn-vaults/blob/master/contracts/BaseStrategy.sol#L781
+        strategy_program_deposit_instruction_id: u8,
+        strategy_program_withdraw_instruction_id: u8,
     },
 
-    /// Issues a Claim.
+    /// Deposits a given token into the vault.
     ///
-    /// 1. `[writeable]` The storage account.
-    /// 4. `[] The rent sysvar. TODO: Possibly move this down for consistency.
-    /// 2. `[]` The ClaimType account.
-    /// 3. `[]` The claim-check program ID defined in the ClaimType account.
-    /// N. `[possibly signer or writable]` Accounts to be passed through to the ClaimCheck program.
-    IssueClaim {
-        claim_type_id: Pubkey,
-        subject_heart_token_id: Pubkey,
-        // data_hash
+    /// Accounts expected:
+    /// 1. `[signer]` The source wallet containing X tokens.
+    /// 2. `[]` The destination wallet for llX tokens.
+    /// 3. `[]` The Vault storage account.
+    /// 4. `[]` SPL Token program
+    /// TODO: Signer pubkeys for multisignature wallets.
+    Deposit { amount: u64 },
+
+    /// Withdraws a token from the strategy.
+    ///
+    /// Accounts expected:
+    /// 2. `[signer]` Source Wallet for derivative token (lX).
+    /// 1. `[]` Target token (X) wallet destination.
+    /// 3. `[]` The Vault storage account.
+    /// 4. `[]` SPL Token program
+    Withdraw {
+        amount: u64, // # of derivative tokens.
     },
-    // RevokeClaim {
-    //     claim_type_id: Pubkey,
-    //     subject: Pubkey,
+
+    // / An implementation of a Hodl strategy.
+    // / 
+    // / TODO: Move this to a separate program?
+    // ConfigureHodlStrategy{},
+    // HodlStrategyDeposit {
+    //     amount: u64,
     // },
-    /// Creates a new Claim type.
-    ///
+    // HodlStrategyWithdraw {
+    //     amount: u64,
+    // }
+}
+
+// Strategy programs should implement the following interface for strategies.
+pub enum StrategyInstruction {
+    /// Deposits a token into the strategy.
     ///
     /// Accounts expected:
-    ///
-    /// 1. `[]` The account holding the claim-check data
-    CreateSimpleClaimCheck {
-        // If either of these is a HT ID, then that individual signing is considered a sufficient
-        // credential. Otherwise, these should correspond to claim type IDs.
-        subject_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
-        issuer_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
+    /// 1. `[signer]` Source token (X) wallet
+    /// 2. `[]` Target wallet for derivative token (lX)
+    Deposit {
+        amount: u64, // # of X tokens.
     },
+    /// Withdraws a token from the strategy.
+    ///
+    /// Accounts expected:
+    /// 2. `[signer]` Source Wallet for derivative token (lX).
+    /// 1. `[]` Target token (X) wallet destination.
+    Withdraw {
+        amount: u64, // # of lX tokens.
+    },
+}
 
-    /// Executes a claim check - errors on failure.
-    ///
-    /// 1. `[]` TODO XXXX The ClaimType ID.
-    /// 2. `[]` The SimpleClaimCheck storage account.
-    /// 3. `[]` Subject HT
-    /// 4. `[signer]` Issuer HT
-    /// 5 to 5+N: N Claims for subject-required credentials.
-    /// 5+N+1 to 5+N+M+1: M Claims for issuer-required credentials.
-    ///
-    ExecuteSimpleClaimCheck {}, // CreateVaultContract {
-                                // }
-                                // SignWithVaults {
-                                // }
-                                // RecoverVault {
-                                //     heart_token_account: Pubkey, // The account/ID of the Vault
-                                //     heart_token_owner: Pubkey,  // Wallet of holder.
-                                //     verified_credentials: Vec<VerifiedCredential>
-                                // },
-                                // AddCredentialsToVault {
-                                //     heart_token_owner: Pubkey,
-                                //     verified_credentials: Vec<VerifiedCredential>
-                                // },
-                                // SignWithVaults {
-                                //     instructions: Vec<Instruction>,
-                                //     // constraints: Vec<Constraint>
-                                // }
+impl StrategyInstruction {
+    /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
+    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
+        let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
+
+        Ok(match tag {
+            0 | 1 => {
+                let amount = rest
+                    .get(..8)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                match tag {
+                    1 => Self::Deposit { amount },
+                    2 => Self::Withdraw { amount },
+                    _ => return Err(VaultError::InvalidInstruction.into()),
+                }
+            }
+            _ => return Err(VaultError::InvalidInstruction.into()),
+        })
+    }
+
+    fn pack(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(size_of::<Self>());
+        match self {
+            &Self::Deposit { amount } => {
+                buf.push(2);
+                buf.extend_from_slice(&amount.to_le_bytes());
+            }
+
+            &Self::Withdraw { amount } => {
+                buf.push(3);
+                buf.extend_from_slice(&amount.to_le_bytes());
+            }
+        }
+        buf
+    }
+
+    pub fn deposit(
+        strategy_program_id: &Pubkey,
+        token_program_id: &Pubkey,
+        source_pubkey: &Pubkey,
+        destination_pubkey: &Pubkey,
+        amount: u64,
+    ) -> Result<Instruction, ProgramError> {
+        let data = VaultInstruction::Deposit { amount }.pack();
+    
+        let accounts = vec![
+            AccountMeta::new(*source_pubkey, false),
+            AccountMeta::new(*destination_pubkey, false),
+            AccountMeta::new_readonly(*token_program_id, false),
+        ];
+    
+        Ok(Instruction {
+            program_id: *strategy_program_id,
+            accounts,
+            data,
+        })
+    }
+    
+    pub fn withdraw(
+        strategy_program_id: &Pubkey,
+        token_program_id: &Pubkey,
+        source_pubkey: &Pubkey,
+        destination_pubkey: &Pubkey,
+        amount: u64,
+    ) -> Result<Instruction, ProgramError> {
+        let data = VaultInstruction::Deposit { amount }.pack();
+
+        let accounts = vec![
+            AccountMeta::new(*source_pubkey, false),
+            AccountMeta::new(*destination_pubkey, false),
+            AccountMeta::new_readonly(*token_program_id, false),
+        ];
+    
+        Ok(Instruction {
+            program_id: *strategy_program_id,
+            accounts,
+            data,
+        })
+    }
 }
 
 impl VaultInstruction {
@@ -111,273 +188,120 @@ impl VaultInstruction {
 
         Ok(match tag {
             0 => {
-                // let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
-                Self::CreateVault {
-                    // heart_token_owner: pubkey,
+                let strategy_program_deposit_instruction_id = *rest.get(0).unwrap();
+                let strategy_program_withdraw_instruction_id = *rest.get(1).unwrap();
+                Self::ConfigureVault {
+                    strategy_program_deposit_instruction_id,
+                    strategy_program_withdraw_instruction_id,
                 }
             }
-            1 => {
-                let (check_program_id, rest) = Self::unpack_pubkey(rest)?;
-                let check_program_instruction_id = *rest.get(0).unwrap();
-                Self::CreateClaimType {
-                    check_program_id,
-                    check_program_instruction_id,
-                }
-            }
-            2 => {
-                let (claim_type_id, rest) = Self::unpack_pubkey(rest)?;
-                let (subject_heart_token_id, _rest) = Self::unpack_pubkey(rest)?;
-                Self::IssueClaim {
-                    claim_type_id,
-                    subject_heart_token_id, // heart_token_owner: pubkey,
-                }
-            }
-            3 => {
-                if rest.len() == 2 * 32 * MAX_REQUIRED_CREDENTIALS {
-                    let subject_required_credentials =
-                        [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
-                    let issuer_required_credentials =
-                        [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
-                    Self::CreateSimpleClaimCheck {
-                        subject_required_credentials,
-                        issuer_required_credentials,
-                    }
-                } else {
-                    return Err(VaultError::InvalidInstruction.into());
-                }
-            }
-            4 => {
-                // let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
-                Self::ExecuteSimpleClaimCheck {
-                    // claim_type_id: pubkey,
+            1 | 2 => {
+                let amount = rest
+                    .get(..8)
+                    .and_then(|slice| slice.try_into().ok())
+                    .map(u64::from_le_bytes)
+                    .ok_or(InvalidInstruction)?;
+                match tag {
+                    1 => Self::Deposit { amount },
+                    2 => Self::Withdraw { amount },
+                    _ => return Err(VaultError::InvalidInstruction.into()),
                 }
             }
             _ => return Err(VaultError::InvalidInstruction.into()),
         })
     }
-    fn unpack_pubkey(input: &[u8]) -> Result<(Pubkey, &[u8]), ProgramError> {
-        if input.len() >= 32 {
-            let (key, rest) = input.split_at(32);
-            let pk = Pubkey::new(key);
-            Ok((pk, rest))
-        } else {
-            Err(VaultError::InvalidInstruction.into())
-        }
-    }
 
     fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::CreateVault {} => {
-                buf.push(0);
-                // buf.extend_from_slice(heart_token_owner.as_ref());
-            }
-            &Self::CreateClaimType {
-                ref check_program_id,
-                check_program_instruction_id,
+            &Self::ConfigureVault {
+                strategy_program_deposit_instruction_id,
+                strategy_program_withdraw_instruction_id,
             } => {
                 buf.push(1);
-                buf.extend_from_slice(check_program_id.as_ref());
-                buf.push(check_program_instruction_id);
+                buf.push(strategy_program_deposit_instruction_id);
+                buf.push(strategy_program_withdraw_instruction_id);
             }
-            &Self::IssueClaim {
-                ref claim_type_id,
-                ref subject_heart_token_id,
-            } => {
+            &Self::Deposit { amount } => {
                 buf.push(2);
-                buf.extend_from_slice(claim_type_id.as_ref());
-                buf.extend_from_slice(subject_heart_token_id.as_ref());
+                buf.extend_from_slice(&amount.to_le_bytes());
             }
-            &Self::CreateSimpleClaimCheck {
-                ref subject_required_credentials,
-                ref issuer_required_credentials,
-            } => {
+
+            &Self::Withdraw { amount } => {
                 buf.push(3);
-                for key in subject_required_credentials
-                    .iter()
-                    .chain(issuer_required_credentials.iter())
-                {
-                    buf.extend_from_slice(key.as_ref());
-                }
-            }
-            &Self::ExecuteSimpleClaimCheck {} => {
-                buf.push(4);
-                // buf.extend_from_slice(claim_type_id.as_ref());
-            }
-        }
-        buf
-    }
-
-    pub fn create_issue_claim(
-        heart_token_program_id: &Pubkey,
-        claim_type_id: &Pubkey,
-        subject_heart_token_id: &Pubkey,
-    ) -> Result<Instruction, ProgramError> {
-        let accounts = vec![
-            // AccountMeta::new_readonly(*check_program_id, false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
-        ];
-        let data = VaultInstruction::IssueClaim {
-            claim_type_id: *claim_type_id,
-            subject_heart_token_id: *subject_heart_token_id,
-        }
-        .pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts,
-            data,
-        })
-    }
-
-    pub fn create_heart_token(
-        heart_token_program_id: &Pubkey,
-        heart_token_owner: &Pubkey,
-        heart_token_account: &Pubkey,
-        heart_token_minter: &Pubkey,
-    ) -> Result<Instruction, ProgramError> {
-        let accounts = vec![
-            AccountMeta::new_readonly(*heart_token_owner, true),
-            AccountMeta::new(*heart_token_account, false),
-            AccountMeta::new_readonly(*heart_token_minter, true),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
-        ];
-        let data = VaultInstruction::CreateVault {}.pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts,
-            data,
-        })
-    }
-
-    pub fn create_simple_claim_check(
-        heart_token_program_id: &Pubkey,
-        storage_account: &Pubkey,
-        subject_required_credentials: &[Pubkey; MAX_REQUIRED_CREDENTIALS],
-        issuer_required_credentials: &[Pubkey; MAX_REQUIRED_CREDENTIALS],
-    ) -> Result<Instruction, ProgramError> {
-        let accounts = vec![
-            // AccountMeta::new_readonly(*check_program_id, false),
-            AccountMeta::new(*storage_account, false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
-        ];
-        let data = VaultInstruction::CreateSimpleClaimCheck {
-            subject_required_credentials: *subject_required_credentials,
-            issuer_required_credentials: *issuer_required_credentials,
-        }
-        .pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts,
-            data,
-        })
-    }
-
-    pub fn create_execute_simple_claim_check(
-        heart_token_program_id: &Pubkey,
-        account_metas: Vec<AccountMeta>,
-    ) -> Result<Instruction, ProgramError> {
-        let data = VaultInstruction::ExecuteSimpleClaimCheck {}
-        .pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts: account_metas,
-            data,
-        })
-    }
-
-    pub fn create_claim_type(
-        heart_token_program_id: &Pubkey,
-        check_program_id: &Pubkey,
-        check_program_instruction_id: u8,
-    ) -> Result<Instruction, ProgramError> {
-        let accounts = vec![
-            // AccountMeta::new_readonly(*check_program_id, false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
-        ];
-        let data = VaultInstruction::CreateClaimType {
-            check_program_id: *check_program_id,
-            check_program_instruction_id,
-        }
-        .pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts,
-            data,
-        })
-    }
-}
-
-pub enum EscrowInstruction {
-    /// Starts the trade by creating and populating an escrow account and transferring ownership of the given temp token account to the PDA
-    ///
-    ///
-    /// Accounts expected:
-    ///
-    /// 0. `[signer]` The account of the person initializing the escrow
-    /// 1. `[writable]` Temporary token account that should be created prior to this instruction and owned by the initializer
-    /// 2. `[]` The initializer's token account for the token they will receive should the trade go through
-    /// 3. `[writable]` The escrow account, it will hold all necessary info about the trade.
-    /// 4. `[]` The rent sysvar
-    /// 5. `[]` The SPL token program for transfer authority.
-    InitEscrow {
-        /// The amount party A expects to receive of token Y
-        amount: u64,
-    },
-}
-
-impl EscrowInstruction {
-    /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
-    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
-        let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
-
-        Ok(match tag {
-            0 => Self::InitEscrow {
-                amount: Self::unpack_amount(rest)?,
-            },
-            _ => return Err(InvalidInstruction.into()),
-        })
-    }
-
-    fn unpack_amount(input: &[u8]) -> Result<u64, ProgramError> {
-        let amount = input
-            .get(..8)
-            .and_then(|slice| slice.try_into().ok())
-            .map(u64::from_le_bytes)
-            .ok_or(InvalidInstruction)?;
-        Ok(amount)
-    }
-
-    fn pack(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(size_of::<Self>());
-        match self {
-            &Self::InitEscrow { amount } => {
-                buf.push(0);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
         }
         buf
     }
 
-    pub fn initialize_escrow(
-        escrow_program_id: &Pubkey,
-        account: &Pubkey,
-        temp_escrow_account: &Pubkey,
-        receiver_account: &Pubkey,
-        escrow_account: &Pubkey,
+    pub fn configure_vault(
+        vault_program_id: &Pubkey,
+        vault_storage_account: &Pubkey,
+        lx_token_account: &Pubkey,
+        llx_token_mint_id: &Pubkey,
+        strategy_program: &Pubkey,
+        strategy_program_deposit_instruction_id: u8,
+        strategy_program_withdraw_instruction_id: u8,
+    ) -> Result<Instruction, ProgramError> {
+        
+        let accounts = vec![
+            AccountMeta::new(*vault_storage_account, false),
+            AccountMeta::new_readonly(*lx_token_account, false),
+            AccountMeta::new_readonly(*llx_token_mint_id, false),
+            AccountMeta::new_readonly(*strategy_program, false),
+            AccountMeta::new_readonly(sysvar::rent::id(), false),
+        ];
+        let data = VaultInstruction::ConfigureVault {
+            strategy_program_deposit_instruction_id,
+            strategy_program_withdraw_instruction_id,
+        }
+        .pack();
+        Ok(Instruction {
+            program_id: *vault_program_id,
+            accounts,
+            data,
+        })
+    }
+    pub fn deposit(
+        vault_program_id: &Pubkey,
         token_program_id: &Pubkey,
+        source_pubkey: &Pubkey,
+        destination_pubkey: &Pubkey,
         amount: u64,
     ) -> Result<Instruction, ProgramError> {
+        let data = VaultInstruction::Deposit { amount }.pack();
+    
         let accounts = vec![
-            AccountMeta::new_readonly(*account, true),
-            AccountMeta::new(*temp_escrow_account, false),
-            AccountMeta::new_readonly(*receiver_account, false),
-            AccountMeta::new(*escrow_account, false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
+            AccountMeta::new(*source_pubkey, false),
+            AccountMeta::new(*destination_pubkey, false),
             AccountMeta::new_readonly(*token_program_id, false),
         ];
-        let data = EscrowInstruction::InitEscrow { amount: amount }.pack();
+    
         Ok(Instruction {
-            program_id: *escrow_program_id,
+            program_id: *vault_program_id,
+            accounts,
+            data,
+        })
+    }
+    
+    pub fn withdraw(
+        vault_program_id: &Pubkey,
+        token_program_id: &Pubkey,
+        source_pubkey: &Pubkey,
+        destination_pubkey: &Pubkey,
+        amount: u64,
+    ) -> Result<Instruction, ProgramError> {
+        let data = VaultInstruction::Deposit { amount }.pack();
+
+        let accounts = vec![
+            AccountMeta::new(*source_pubkey, false),
+            AccountMeta::new(*destination_pubkey, false),
+            AccountMeta::new_readonly(*token_program_id, false),
+        ];
+    
+        Ok(Instruction {
+            program_id: *vault_program_id,
             accounts,
             data,
         })

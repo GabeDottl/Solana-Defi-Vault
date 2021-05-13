@@ -6,7 +6,7 @@ use {
     entrypoint::process_instruction,
     instruction::{EscrowInstruction, VaultInstruction},
     state::{
-      Claim, ClaimType, SimpleClaimCheck, MAX_REQUIRED_CREDENTIALS, NULL_PUBKEY,
+      Claim, Vault, SimpleClaimCheck, MAX_REQUIRED_CREDENTIALS, NULL_PUBKEY,
     },
   },
   solana_program::{
