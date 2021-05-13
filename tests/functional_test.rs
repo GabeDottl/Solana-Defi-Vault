@@ -5,19 +5,23 @@ use {
   hearttoken::{
     entrypoint::process_instruction,
     instruction::{EscrowInstruction, HeartTokenInstruction},
+    state::{
+      Claim, ClaimType, HeartToken, SimpleClaimCheck, MAX_REQUIRED_CREDENTIALS, NULL_PUBKEY,
+    },
   },
   solana_program::{
     borsh::get_packed_len,
+    hash::Hash,
     instruction::{AccountMeta, Instruction},
+    msg,
     program_option::COption,
     program_pack::Pack,
     pubkey::Pubkey,
-    msg,
     rent::Rent,
     system_instruction,
     sysvar::{self},
   },
-  solana_program_test::{processor, ProgramTest},
+  solana_program_test::{processor, ProgramTest, ProgramTestContext},
   solana_sdk::signature::Keypair,
   solana_sdk::{account::Account, signature::Signer, transaction::Transaction},
   spl_token::{processor::Processor, state::AccountState},
@@ -119,18 +123,143 @@ impl AddPacked for ProgramTest {
 // }
 
 #[tokio::test]
+async fn test_execute_create_simple_claim_check() {
+  let mut program_test = ProgramTest::new(
+    "heart_token_test",
+    hearttoken::id(),
+    processor!(hearttoken::processor::Processor::process_heart_token),
+  );
+  let alice_account = Keypair::new();
+  // Start the test client
+  let mut program_context = program_test.start_with_context().await;
+  // Create HeartToken.
+  let account_space = spl_token::state::Mint::LEN;
+  let claim_check_account =
+    create_simple_claim_check_transaction(&mut program_context, alice_account.pubkey());
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      system_instruction::create_account(
+        &program_context.payer.pubkey(),
+        &storage_account.pubkey(),
+        1.max(Rent::default().minimum_balance(hearttoken::state::SimpleClaimCheck::LEN)),
+        hearttoken::state::SimpleClaimCheck::LEN as u64,
+        &hearttoken::id(),
+      ),
+      HeartTokenInstruction::create_execute_simple_claim_check(
+        &hearttoken::id(),
+        [
+          AccountMeta::new_readonly(storage_account.pubkey(), false),
+          AccountMeta::new_readonly(alice_account.pubkey(), false), // Subject
+          AccountMeta::new_readonly(alice_account.pubkey(), true),  // Issuer
+          AccountMeta::new_readonly(alice_account.pubkey(), false), // Issuer credential
+        ],
+      )
+      .unwrap(),
+    ],
+    Some(&program_context.payer.pubkey()),
+  );
+  transaction.sign(
+    &[&program_context.payer, &storage_account, &alice_account],
+    program_context.last_blockhash,
+  );
+  // Create mint:
+  assert_matches!(
+    program_context
+      .banks_client
+      .process_transaction(transaction)
+      .await,
+    Ok(())
+  );
+}
+
+//   let mut program_test = ProgramTest::new(
+//     "heart_token_test",
+//     hearttoken::id(),
+//     processor!(hearttoken::processor::Processor::process_heart_token),
+//   );
+
+//   let alice_account = Keypair::new();
+
+//   // Start the test client
+//   let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+//   // Create HeartToken.
+//   let account_space = spl_token::state::Mint::LEN;
+//   let transaction = create_simple_claim_transaction(&payer, &recent_blockhash, &NULL_PUBKEY);
+//   // Create claim_check.
+//   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+// }
+
+/// Returns the SimpleClaimCheck-storing account.
+async fn create_simple_claim_check_transaction(
+  program_context: &mut ProgramTestContext,
+  issuer: Pubkey,
+) -> Keypair {
+  let storage_account = Keypair::new();
+  let subject_required_credentials = [NULL_PUBKEY; MAX_REQUIRED_CREDENTIALS];
+  let mut issuer_required_credentials = [NULL_PUBKEY; MAX_REQUIRED_CREDENTIALS];
+  issuer_required_credentials[0] = issuer;
+
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      system_instruction::create_account(
+        &program_context.payer.pubkey(),
+        &storage_account.pubkey(),
+        1.max(Rent::default().minimum_balance(hearttoken::state::SimpleClaimCheck::LEN)),
+        hearttoken::state::SimpleClaimCheck::LEN as u64,
+        &hearttoken::id(),
+      ),
+      HeartTokenInstruction::create_simple_claim_check(
+        &hearttoken::id(),
+        &storage_account.pubkey(),
+        &subject_required_credentials,
+        &issuer_required_credentials,
+      )
+      .unwrap(),
+    ],
+    Some(&program_context.payer.pubkey()),
+  );
+  transaction.sign(
+    &[&program_context.payer, &storage_account],
+    program_context.last_blockhash,
+  );
+  // Create mint:
+  assert_matches!(
+    program_context
+      .banks_client
+      .process_transaction(transaction)
+      .await,
+    Ok(())
+  );
+  return storage_account;
+}
+
+#[tokio::test]
+async fn test_create_simple_claim_check() {
+  let mut program_test = ProgramTest::new(
+    "heart_token_test",
+    hearttoken::id(),
+    processor!(hearttoken::processor::Processor::process_heart_token),
+  );
+
+  // Start the test client
+  let mut program_context = program_test.start_with_context().await;
+  // Create HeartToken.
+  let account_space = spl_token::state::Mint::LEN;
+  create_simple_claim_check_transaction(&mut program_context, NULL_PUBKEY);
+}
+
+#[tokio::test]
 async fn test_create_heart_minter() {
   let account_alice = Keypair::new();
   let account_heart_token = Keypair::new();
   // let heart_token_minter = Keypair::new();
-  let keypair: [u8;64] = [
+  let keypair: [u8; 64] = [
     107, 254, 121, 199, 233, 104, 91, 98, 219, 230, 11, 238, 73, 88, 242, 134, 198, 227, 13, 235,
     0, 64, 96, 208, 124, 152, 133, 96, 65, 88, 149, 96, 68, 150, 109, 75, 78, 72, 134, 74, 26, 54,
     152, 10, 233, 15, 48, 202, 174, 83, 206, 230, 45, 171, 29, 138, 3, 221, 137, 56, 228, 100, 153,
     203,
   ];
   let heart_token_minter = Keypair::from_bytes(&keypair).unwrap();
-  
   let mut program_test = ProgramTest::new(
     "heart_token_test",
     hearttoken::id(),
@@ -154,14 +283,19 @@ async fn test_create_heart_minter() {
         &hearttoken::id(),
         &account_alice.pubkey(),
         &account_heart_token.pubkey(),
-        &heart_token_minter.pubkey()
+        &heart_token_minter.pubkey(),
       )
       .unwrap(),
     ],
     Some(&payer.pubkey()),
   );
   transaction.sign(
-    &[&payer, &account_alice, &account_heart_token, &heart_token_minter],
+    &[
+      &payer,
+      &account_alice,
+      &account_heart_token,
+      &heart_token_minter,
+    ],
     recent_blockhash,
   );
   // Create mint:

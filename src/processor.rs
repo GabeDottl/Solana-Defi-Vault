@@ -1,6 +1,7 @@
 use solana_program::{
   account_info::{next_account_info, AccountInfo},
   entrypoint::ProgramResult,
+  instruction::{AccountMeta, Instruction},
   msg,
   program::invoke,
   program_error::ProgramError,
@@ -14,10 +15,13 @@ use std::str::FromStr;
 use crate::{
   error::{EscrowError, HeartTokenError},
   instruction::{EscrowInstruction, HeartTokenInstruction},
-  state::{CredentialType, Escrow, HeartToken},
+  state::{
+    Claim, ClaimType, CredentialType, Escrow, HeartToken, SimpleClaimCheck,
+    MAX_REQUIRED_CREDENTIALS, NULL_PUBKEY,
+  },
 };
 
-pub const GOD_PUBKEY_STR: &str = "5cjmBetNkWYa2ZKZTsTMreNZQNSpwyhDrTVsynJVKZ9C";// "5gREDw2KxWKTceSTCbtQSG32aSnHrxPUUNo1PERZBMTq";
+pub const GOD_PUBKEY_STR: &str = "5cjmBetNkWYa2ZKZTsTMreNZQNSpwyhDrTVsynJVKZ9C"; // "5gREDw2KxWKTceSTCbtQSG32aSnHrxPUUNo1PERZBMTq";
 
 pub struct Processor;
 impl Processor {
@@ -34,36 +38,43 @@ impl Processor {
         msg!("Instruction: CreateHeartToken");
         Self::process_create_heart_token(accounts, program_id)
       }
-      HeartTokenInstruction::CreateClaimType { claim_check_program_id, check_program_instruction_id } => {
+      HeartTokenInstruction::CreateClaimType {
+        ref check_program_id,
+        check_program_instruction_id,
+      } => {
         msg!("Instruction: CreateClaimType");
-        return Err(HeartTokenError::NotImplemented.into());
+        Self::process_create_claim_type(
+          accounts,
+          check_program_id,
+          check_program_instruction_id,
+          program_id,
+        )
       }
-      HeartTokenInstruction::IssueClaim { claim_type_id, subject } => {
+      HeartTokenInstruction::IssueClaim {
+        ref claim_type_id,
+        ref subject_heart_token_id,
+      } => {
         msg!("Instruction: IssueClaim");
-        return Err(HeartTokenError::NotImplemented.into());
+        Self::process_issue_claim(accounts, claim_type_id, subject_heart_token_id, program_id)
       }
-      HeartTokenInstruction::CreateSimpleClaimCheck {subject_required_credentials, issuer_required_credentials} => {
+      HeartTokenInstruction::CreateSimpleClaimCheck {
+        ref subject_required_credentials,
+        ref issuer_required_credentials,
+      } => {
         msg!("Instruction: CreateSimpleClaimCheck");
-        return Err(HeartTokenError::NotImplemented.into());
+        Self::process_create_simple_claim_check(
+          accounts,
+          subject_required_credentials,
+          issuer_required_credentials,
+          program_id,
+        )
       }
-      HeartTokenInstruction::ExecuteSimpleClaimCheck {claim_type_id} => {
+      HeartTokenInstruction::ExecuteSimpleClaimCheck {} => {
         msg!("Instruction: ExecuteSimpleClaimCheck");
-        return Err(HeartTokenError::NotImplemented.into());
+        Self::process_execute_simple_claim_check(accounts, program_id)
       }
     }
   }
-
-  // fn process_create_simple_claim_check(accounts: &[AccountInfo],
-  //   subject_required_credentials: &[Pubkey],
-  //   issuer_required_credentials:  &[Pubkey],
-  //   program_id: &Pubkey) {
-  //   let account_info_iter = &mut accounts.iter();
-  //   let owner = next_account_info(account_info_iter)?;
-  //   if account.owner != program_id {
-  //     msg!("Invalid owner!");
-  //     return Err(HeartTokenError::InvalidMinter.into());
-  //   }
-  // }
 
   fn check_minter(account: &AccountInfo, program_id: &Pubkey) -> ProgramResult {
     msg!("Account: {}", account.key.to_string());
@@ -123,6 +134,207 @@ impl Processor {
 
     // Write the heart_token info to the actual account.
     HeartToken::pack(heart_token_info, &mut heart_token_account.data.borrow_mut())?;
+
+    Ok(())
+  }
+
+  fn process_create_claim_type(
+    accounts: &[AccountInfo],
+    check_program_id: &Pubkey,
+    check_program_instruction_id: u8,
+    program_id: &Pubkey,
+  ) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+    let storage_account = next_account_info(account_info_iter)?;
+
+    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
+      return Err(HeartTokenError::NotRentExempt.into());
+    }
+
+    let mut claim_type_info = ClaimType::unpack_unchecked(&storage_account.data.borrow())?;
+    if claim_type_info.is_initialized() {
+      return Err(ProgramError::AccountAlreadyInitialized);
+    }
+    claim_type_info.is_initialized = true;
+    claim_type_info.check_program_id = *check_program_id;
+    claim_type_info.check_program_instruction_id = check_program_instruction_id;
+
+    // Write the claim_type_info to the actual account.
+    ClaimType::pack(claim_type_info, &mut storage_account.data.borrow_mut())?;
+    Ok(())
+  }
+
+  fn process_issue_claim(
+    accounts: &[AccountInfo],
+    claim_type_id: &Pubkey,
+    subject_heart_token_id: &Pubkey,
+    program_id: &Pubkey,
+  ) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+    let storage_account = next_account_info(account_info_iter)?;
+    // Ensure rent is paid for the claim-storage.
+    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
+      return Err(HeartTokenError::NotRentExempt.into());
+    }
+    let claim_type_account = next_account_info(account_info_iter)?;
+    let claim_check_program = next_account_info(account_info_iter)?;
+
+    // Ensure not a fake claim owned by another program.
+    if claim_type_account.owner != program_id {
+      return Err(ProgramError::InvalidAccountData);
+    }
+    let claim_type_info = ClaimType::unpack_unchecked(&claim_type_account.data.borrow())?;
+    // Ensure specified check program corresponds to the actual required check program.
+    if claim_type_info.check_program_id != *claim_check_program.key {
+      return Err(ProgramError::InvalidArgument);
+    }
+    let mut account_metas = Vec::new();
+    account_metas.push(AccountMeta::new_readonly(*claim_check_program.key, claim_check_program.is_signer));
+    for account in account_info_iter {
+      account_metas.push(if account.is_writable {
+        AccountMeta::new(*account.key, account.is_signer)
+      } else {
+        AccountMeta::new_readonly(*account.key, account.is_signer)
+      })
+    }
+    let mut data = Vec::new();
+    data.push(claim_type_info.check_program_instruction_id);
+    let instruction = Instruction {
+      program_id: claim_type_info.check_program_id,
+      accounts: account_metas,
+      data,
+    };
+    // Run the claim-check program - if it fails, then the user cannot be granted the credential.
+    // First account in 
+    invoke(&instruction, &accounts[3..])?;
+    msg!("Called");
+
+    let mut claim_info = Claim::unpack_unchecked(&storage_account.data.borrow())?;
+    if claim_info.is_initialized() {
+      return Err(ProgramError::AccountAlreadyInitialized);
+    }
+    claim_info.is_initialized = true;
+    claim_info.claim_type_id = *claim_type_id;
+    claim_info.subject_heart_token_id = *subject_heart_token_id;
+
+    // Write the claim_info to the actual account.
+    Claim::pack(claim_info, &mut storage_account.data.borrow_mut())?;
+    Ok(())
+  }
+
+  fn process_create_simple_claim_check(
+    accounts: &[AccountInfo],
+    subject_required_credentials: &[Pubkey],
+    issuer_required_credentials: &[Pubkey],
+    program_id: &Pubkey,
+  ) -> ProgramResult {
+    msg!("Creating claim1");
+    let account_info_iter = &mut accounts.iter();
+    msg!("Creating claim1");
+    let storage_account = next_account_info(account_info_iter)?;
+    msg!("Creating claim1");
+    let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    if !rent.is_exempt(storage_account.lamports(), SimpleClaimCheck::LEN) {
+      return Err(ProgramError::AccountNotRentExempt);
+    }
+    msg!("Creating claim1");
+
+    let mut claim_check_info = SimpleClaimCheck::unpack_unchecked(&storage_account.data.borrow())?;
+    if claim_check_info.is_initialized() {
+      return Err(ProgramError::AccountAlreadyInitialized);
+    }
+    msg!("Creating claim2");
+    claim_check_info.is_initialized = true;
+    if subject_required_credentials.len() > MAX_REQUIRED_CREDENTIALS
+      || issuer_required_credentials.len() > MAX_REQUIRED_CREDENTIALS
+    {
+      return Err(ProgramError::InvalidArgument);
+    }
+
+    msg!("Creating claim3");
+    claim_check_info
+      .issuer_required_credentials
+      .copy_from_slice(issuer_required_credentials);
+    claim_check_info
+      .subject_required_credentials
+      .copy_from_slice(subject_required_credentials);
+
+    // Write the heart_token info to the actual account.
+    SimpleClaimCheck::pack(claim_check_info, &mut storage_account.data.borrow_mut())?;
+
+    Ok(())
+  }
+
+  fn process_execute_simple_claim_check(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+  ) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+    let storage_account = next_account_info(account_info_iter)?;
+
+    // let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    // if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
+    //   return Err(HeartTokenError::NotRentExempt.into());
+    // }
+
+    let simple_claim_check = SimpleClaimCheck::unpack_unchecked(&storage_account.data.borrow())?;
+    if !simple_claim_check.is_initialized() {
+      return Err(HeartTokenError::InvalidInstruction.into());
+    }
+    let subject_heart_token = next_account_info(account_info_iter)?;
+    let issuer_heart_token = next_account_info(account_info_iter)?;
+    let mut passed: bool = true;
+    for claim_type_id in simple_claim_check.subject_required_credentials.iter() {
+      if *claim_type_id == NULL_PUBKEY {
+        break;
+      }
+      // If the claim type is the target HT, then ignore other credential requirements.
+      if claim_type_id == subject_heart_token.key {
+        passed = true;
+        break;
+      }
+      let account_claim = next_account_info(account_info_iter).unwrap();
+      // Ensure not a fake claim owned by another program.
+      if account_claim.owner != program_id {
+        passed = false;
+      }
+      let account_claim_info = Claim::unpack_unchecked(&account_claim.data.borrow())?;
+      if account_claim_info.claim_type_id != *claim_type_id
+        || account_claim_info.subject_heart_token_id != *subject_heart_token.key
+      {
+        passed = false;
+      }
+    }
+    if !passed {
+      return Err(ProgramError::InvalidArgument);
+    }
+    passed = true;
+    for claim_type_id in simple_claim_check.issuer_required_credentials.iter() {
+      if *claim_type_id == NULL_PUBKEY {
+        break;
+      }
+      // If the claim type is the target HT, then ignore other credential requirements.
+      if *claim_type_id == *issuer_heart_token.key {
+        passed = true;
+        break;
+      }
+      let account_claim = next_account_info(account_info_iter).unwrap();
+      // Ensure not a fake claim owned by another program.
+      if account_claim.owner != program_id {
+        passed = false;
+      }
+      let account_claim_info = Claim::unpack_unchecked(&account_claim.data.borrow())?;
+      if account_claim_info.claim_type_id != *claim_type_id
+        || account_claim_info.subject_heart_token_id != *issuer_heart_token.key
+      {
+        passed = false;
+      }
+    }
+    if !passed {
+      return Err(ProgramError::InvalidArgument);
+    }
 
     Ok(())
   }

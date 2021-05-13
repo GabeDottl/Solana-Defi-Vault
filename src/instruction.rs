@@ -6,12 +6,12 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar,
 };
+
 use std::convert::TryInto;
 use std::mem::size_of;
 
 use std::iter::Chain;
 use std::slice::Iter;
-
 
 pub enum HeartTokenInstruction {
     /// Creates a HeartToken.
@@ -25,7 +25,7 @@ pub enum HeartTokenInstruction {
     /// 3. `[]` The rent sysvar
     CreateHeartToken {
         // TODO: Make HeartTokenOwner a credential?
-        // heart_token_owner: Pubkey, // Wallet of holder.
+    // heart_token_owner: Pubkey, // Wallet of holder.
     // verified_credentials: Vec<VerifiedCredential>
     },
 
@@ -33,55 +33,70 @@ pub enum HeartTokenInstruction {
     ///
     ///
     /// Accounts expected:
-    ///
+    /// 1. `[writeable]` The storage account.
     /// 3. `[]` The rent sysvar
     CreateClaimType {
-        claim_check_program_id: Pubkey,
-        check_program_instruction_id: u8
-        // data_hash: [u8; DATA_HASH_SIZE]
-        // data aggregation? E.g. on_success_program_id
-        //
+        check_program_id: Pubkey,
+        check_program_instruction_id: u8, // data_hash: [u8; DATA_HASH_SIZE]
+                                          // data aggregation? E.g. on_success_program_id
+                                          //
     },
+
+    /// Issues a Claim.
+    ///
+    /// 1. `[writeable]` The storage account.
+    /// 4. `[] The rent sysvar. TODO: Possibly move this down for consistency.
+    /// 2. `[]` The ClaimType account.
+    /// 3. `[]` The claim-check program ID defined in the ClaimType account.
+    /// N. `[possibly signer or writable]` Accounts to be passed through to the ClaimCheck program.
     IssueClaim {
         claim_type_id: Pubkey,
-        subject: Pubkey,
+        subject_heart_token_id: Pubkey,
         // data_hash
     },
     // RevokeClaim {
     //     claim_type_id: Pubkey,
     //     subject: Pubkey,
     // },
-
     /// Creates a new Claim type.
     ///
     ///
     /// Accounts expected:
     ///
-    /// 3. `[]` The rent sysvar
+    /// 1. `[]` The account holding the claim-check data
     CreateSimpleClaimCheck {
+        // If either of these is a HT ID, then that individual signing is considered a sufficient
+        // credential. Otherwise, these should correspond to claim type IDs.
         subject_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
-        issuer_required_credentials:  [Pubkey; MAX_REQUIRED_CREDENTIALS]
+        issuer_required_credentials: [Pubkey; MAX_REQUIRED_CREDENTIALS],
     },
-    ExecuteSimpleClaimCheck {
-        claim_type_id: Pubkey
-    }
-    // CreateHeartTokenContract {
-    // }
-    // SignWithHeartTokens {
-    // }
-    // RecoverHeartToken {
-    //     heart_token_account: Pubkey, // The account/ID of the HeartToken
-    //     heart_token_owner: Pubkey,  // Wallet of holder.
-    //     verified_credentials: Vec<VerifiedCredential>
-    // },
-    // AddCredentialsToHeartToken {
-    //     heart_token_owner: Pubkey,
-    //     verified_credentials: Vec<VerifiedCredential>
-    // },
-    // SignWithHeartTokens {
-    //     instructions: Vec<Instruction>,
-    //     // constraints: Vec<Constraint>
-    // },
+
+    /// Executes a claim check - errors on failure.
+    ///
+    /// 1. `[]` TODO XXXX The ClaimType ID.
+    /// 2. `[]` The SimpleClaimCheck storage account.
+    /// 3. `[]` Subject HT
+    /// 4. `[signer]` Issuer HT
+    /// 5 to 5+N: N Claims for subject-required credentials.
+    /// 5+N+1 to 5+N+M+1: M Claims for issuer-required credentials.
+    ///
+    ExecuteSimpleClaimCheck {}, // CreateHeartTokenContract {
+                                // }
+                                // SignWithHeartTokens {
+                                // }
+                                // RecoverHeartToken {
+                                //     heart_token_account: Pubkey, // The account/ID of the HeartToken
+                                //     heart_token_owner: Pubkey,  // Wallet of holder.
+                                //     verified_credentials: Vec<VerifiedCredential>
+                                // },
+                                // AddCredentialsToHeartToken {
+                                //     heart_token_owner: Pubkey,
+                                //     verified_credentials: Vec<VerifiedCredential>
+                                // },
+                                // SignWithHeartTokens {
+                                //     instructions: Vec<Instruction>,
+                                //     // constraints: Vec<Constraint>
+                                // }
 }
 
 impl HeartTokenInstruction {
@@ -97,40 +112,41 @@ impl HeartTokenInstruction {
                 }
             }
             1 => {
-                let (claim_check_program_id, rest) = Self::unpack_pubkey(rest)?;
+                let (check_program_id, rest) = Self::unpack_pubkey(rest)?;
                 let check_program_instruction_id = *rest.get(0).unwrap();
                 Self::CreateClaimType {
-                    claim_check_program_id,
-                    check_program_instruction_id
+                    check_program_id,
+                    check_program_instruction_id,
                 }
             }
             2 => {
                 let (claim_type_id, rest) = Self::unpack_pubkey(rest)?;
-                let (subject, _rest) = Self::unpack_pubkey(rest)?;
+                let (subject_heart_token_id, _rest) = Self::unpack_pubkey(rest)?;
                 Self::IssueClaim {
                     claim_type_id,
-                    subject, // heart_token_owner: pubkey,
+                    subject_heart_token_id, // heart_token_owner: pubkey,
                 }
             }
             3 => {
-                if rest.len() == 2 * 32 * MAX_REQUIRED_CREDENTIALS  {
-                    let subject_required_credentials = [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
-                    let issuer_required_credentials = [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
+                if rest.len() == 2 * 32 * MAX_REQUIRED_CREDENTIALS {
+                    let subject_required_credentials =
+                        [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
+                    let issuer_required_credentials =
+                        [Pubkey::new_from_array([0u8; 32]); MAX_REQUIRED_CREDENTIALS];
                     Self::CreateSimpleClaimCheck {
                         subject_required_credentials,
-                        issuer_required_credentials
+                        issuer_required_credentials,
                     }
                 } else {
                     return Err(HeartTokenError::InvalidInstruction.into());
                 }
             }
             4 => {
-                let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
+                // let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
                 Self::ExecuteSimpleClaimCheck {
-                    claim_type_id: pubkey,
+                    // claim_type_id: pubkey,
                 }
             }
-        
             _ => return Err(HeartTokenError::InvalidInstruction.into()),
         })
     }
@@ -152,73 +168,53 @@ impl HeartTokenInstruction {
                 // buf.extend_from_slice(heart_token_owner.as_ref());
             }
             &Self::CreateClaimType {
-                ref claim_check_program_id,
-                check_program_instruction_id
+                ref check_program_id,
+                check_program_instruction_id,
             } => {
                 buf.push(1);
-                buf.extend_from_slice(claim_check_program_id.as_ref());
+                buf.extend_from_slice(check_program_id.as_ref());
                 buf.push(check_program_instruction_id);
             }
             &Self::IssueClaim {
                 ref claim_type_id,
-                ref subject,
+                ref subject_heart_token_id,
             } => {
                 buf.push(2);
                 buf.extend_from_slice(claim_type_id.as_ref());
-                buf.extend_from_slice(subject.as_ref());
+                buf.extend_from_slice(subject_heart_token_id.as_ref());
             }
             &Self::CreateSimpleClaimCheck {
                 ref subject_required_credentials,
                 ref issuer_required_credentials,
             } => {
                 buf.push(3);
-                for key in subject_required_credentials.iter().chain(issuer_required_credentials.iter()) {
+                for key in subject_required_credentials
+                    .iter()
+                    .chain(issuer_required_credentials.iter())
+                {
                     buf.extend_from_slice(key.as_ref());
                 }
             }
-            &Self::ExecuteSimpleClaimCheck {
-                ref claim_type_id,
-            } => {
+            &Self::ExecuteSimpleClaimCheck {} => {
                 buf.push(4);
-                buf.extend_from_slice(claim_type_id.as_ref());
+                // buf.extend_from_slice(claim_type_id.as_ref());
             }
         }
         buf
     }
 
-    pub fn create_claim_type(
-        heart_token_program_id: &Pubkey,
-        claim_check_program_id: &Pubkey,
-        check_program_instruction_id: u8
-    ) -> Result<Instruction, ProgramError> {
-        let accounts = vec![
-            // AccountMeta::new_readonly(*claim_check_program_id, false),
-            AccountMeta::new_readonly(sysvar::rent::id(), false),
-        ];
-        let data = HeartTokenInstruction::CreateClaimType {
-            claim_check_program_id: *claim_check_program_id,
-            check_program_instruction_id
-        }
-        .pack();
-        Ok(Instruction {
-            program_id: *heart_token_program_id,
-            accounts,
-            data,
-        })
-    }
-
     pub fn create_issue_claim(
         heart_token_program_id: &Pubkey,
         claim_type_id: &Pubkey,
-        subject: &Pubkey,
+        subject_heart_token_id: &Pubkey,
     ) -> Result<Instruction, ProgramError> {
         let accounts = vec![
-            // AccountMeta::new_readonly(*claim_check_program_id, false),
+            // AccountMeta::new_readonly(*check_program_id, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
         let data = HeartTokenInstruction::IssueClaim {
             claim_type_id: *claim_type_id,
-            subject: *subject,
+            subject_heart_token_id: *subject_heart_token_id,
         }
         .pack();
         Ok(Instruction {
@@ -241,6 +237,63 @@ impl HeartTokenInstruction {
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
         let data = HeartTokenInstruction::CreateHeartToken {}.pack();
+        Ok(Instruction {
+            program_id: *heart_token_program_id,
+            accounts,
+            data,
+        })
+    }
+
+    pub fn create_simple_claim_check(
+        heart_token_program_id: &Pubkey,
+        storage_account: &Pubkey,
+        subject_required_credentials: &[Pubkey; MAX_REQUIRED_CREDENTIALS],
+        issuer_required_credentials: &[Pubkey; MAX_REQUIRED_CREDENTIALS],
+    ) -> Result<Instruction, ProgramError> {
+        let accounts = vec![
+            // AccountMeta::new_readonly(*check_program_id, false),
+            AccountMeta::new(*storage_account, false),
+            AccountMeta::new_readonly(sysvar::rent::id(), false),
+        ];
+        let data = HeartTokenInstruction::CreateSimpleClaimCheck {
+            subject_required_credentials: *subject_required_credentials,
+            issuer_required_credentials: *issuer_required_credentials,
+        }
+        .pack();
+        Ok(Instruction {
+            program_id: *heart_token_program_id,
+            accounts,
+            data,
+        })
+    }
+
+    pub fn create_execute_simple_claim_check(
+        heart_token_program_id: &Pubkey,
+        account_metas: Vec<AccountMeta>,
+    ) -> Result<Instruction, ProgramError> {
+        let data = HeartTokenInstruction::ExecuteSimpleClaimCheck {}
+        .pack();
+        Ok(Instruction {
+            program_id: *heart_token_program_id,
+            accounts: account_metas,
+            data,
+        })
+    }
+
+    pub fn create_claim_type(
+        heart_token_program_id: &Pubkey,
+        check_program_id: &Pubkey,
+        check_program_instruction_id: u8,
+    ) -> Result<Instruction, ProgramError> {
+        let accounts = vec![
+            // AccountMeta::new_readonly(*check_program_id, false),
+            AccountMeta::new_readonly(sysvar::rent::id(), false),
+        ];
+        let data = HeartTokenInstruction::CreateClaimType {
+            check_program_id: *check_program_id,
+            check_program_instruction_id,
+        }
+        .pack();
         Ok(Instruction {
             program_id: *heart_token_program_id,
             accounts,
