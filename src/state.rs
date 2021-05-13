@@ -226,7 +226,7 @@ impl IsInitialized for SimpleClaimCheck {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, TryFromPrimitive)]
 pub enum CredentialType {
-  HeartTokenMinter,
+  VaultMinter,
   DriversLicense, // TODO:
                   // is_uniquely_identifying
 }
@@ -243,7 +243,7 @@ pub struct VerifiedCredential {
 impl VerifiedCredential {
   pub fn empty() -> VerifiedCredential {
     VerifiedCredential {
-      type_: CredentialType::HeartTokenMinter,
+      type_: CredentialType::VaultMinter,
       verifier_pubkey: Pubkey::new_from_array([0u8; 32]),
     }
   }
@@ -277,25 +277,25 @@ impl Pack for VerifiedCredential {
   }
 }
 
-pub struct HeartToken {
+pub struct Vault {
   // ID is account ID.
   pub is_initialized: bool,
   pub owner_pubkey: Pubkey,
   pub verified_credentials: [VerifiedCredential; MAX_VC],
 }
 
-impl Sealed for HeartToken {}
+impl Sealed for Vault {}
 
-impl IsInitialized for HeartToken {
+impl IsInitialized for Vault {
   fn is_initialized(&self) -> bool {
     self.is_initialized
   }
 }
 
-impl Pack for HeartToken {
+impl Pack for Vault {
   const LEN: usize = 1 + 32 + MAX_VC * VerifiedCredential::LEN;
   fn unpack_from_slice(src: &[u8]) -> Result<Self, ProgramError> {
-    let src = array_ref![src, 0, HeartToken::LEN];
+    let src = array_ref![src, 0, Vault::LEN];
     let (is_initialized, owner_pubkey, verified_credentials_flat) =
       array_refs![src, 1, 32, MAX_VC * VerifiedCredential::LEN];
     let is_initialized = match is_initialized {
@@ -303,7 +303,7 @@ impl Pack for HeartToken {
       [1] => true,
       _ => return Err(ProgramError::InvalidAccountData),
     };
-    let mut result = HeartToken {
+    let mut result = Vault {
       is_initialized,
       owner_pubkey: Pubkey::new_from_array(*owner_pubkey),
       verified_credentials: [VerifiedCredential::empty(); MAX_VC],
@@ -318,11 +318,11 @@ impl Pack for HeartToken {
   }
 
   fn pack_into_slice(&self, dst: &mut [u8]) {
-    let dst = array_mut_ref![dst, 0, HeartToken::LEN];
+    let dst = array_mut_ref![dst, 0, Vault::LEN];
     let (is_initialized_dst, owner_pubkey_dst, verified_credentials_flat_dst) =
       mut_array_refs![dst, 1, 32, MAX_VC * VerifiedCredential::LEN];
 
-    let HeartToken {
+    let Vault {
       is_initialized,
       owner_pubkey,
       verified_credentials,

@@ -6,5 +6,5 @@ pub mod state;
 pub mod instruction;
 pub mod error;
 
-// Random based on Token ID's ID. Defines hearttoken::id().
+// Random based on Token ID's ID. Defines Vault::id().
 solana_program::declare_id!("EscrowegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");

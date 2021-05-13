@@ -1,5 +1,5 @@
-use crate::error::{EscrowError::InvalidInstruction, HeartTokenError};
-use crate::state::{CredentialType, HeartToken, VerifiedCredential, MAX_REQUIRED_CREDENTIALS};
+use crate::error::{EscrowError::InvalidInstruction, VaultError};
+use crate::state::{CredentialType, Vault, VerifiedCredential, MAX_REQUIRED_CREDENTIALS};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -13,18 +13,23 @@ use std::mem::size_of;
 use std::iter::Chain;
 use std::slice::Iter;
 
-pub enum HeartTokenInstruction {
-    /// Creates a HeartToken.
+pub enum VaultInstruction {
+    /// Creates a Vault, similar to a Yearn Vault.
+    /// 
+    /// Laguna Vaults are modeled approximately after Yearn Vaults. A vault is just a lightweight
+    /// asset-container paired with an investment strategy for that asset. The vault only stores
+    /// 
+    /// Laguna Vaults are designed to be highly composable - a vault 
     ///
     ///
     /// Accounts expected:
     ///
-    /// 0. `[signer]` The account of the owner of the HeartToken.
-    /// 1. `[writable]` The HeartToken account, it will hold all necessary info about the HT.
-    /// 2. `[signer]` The HeartToken minter
+    /// 0. `[signer]` The account of the owner of the Vault.
+    /// 1. `[writable]` The Vault account, it will hold all necessary info about the HT.
+    /// 2. `[signer]` The Vault minter
     /// 3. `[]` The rent sysvar
-    CreateHeartToken {
-        // TODO: Make HeartTokenOwner a credential?
+    CreateVault {
+        // TODO: Make VaultOwner a credential?
     // heart_token_owner: Pubkey, // Wallet of holder.
     // verified_credentials: Vec<VerifiedCredential>
     },
@@ -80,26 +85,26 @@ pub enum HeartTokenInstruction {
     /// 5 to 5+N: N Claims for subject-required credentials.
     /// 5+N+1 to 5+N+M+1: M Claims for issuer-required credentials.
     ///
-    ExecuteSimpleClaimCheck {}, // CreateHeartTokenContract {
+    ExecuteSimpleClaimCheck {}, // CreateVaultContract {
                                 // }
-                                // SignWithHeartTokens {
+                                // SignWithVaults {
                                 // }
-                                // RecoverHeartToken {
-                                //     heart_token_account: Pubkey, // The account/ID of the HeartToken
+                                // RecoverVault {
+                                //     heart_token_account: Pubkey, // The account/ID of the Vault
                                 //     heart_token_owner: Pubkey,  // Wallet of holder.
                                 //     verified_credentials: Vec<VerifiedCredential>
                                 // },
-                                // AddCredentialsToHeartToken {
+                                // AddCredentialsToVault {
                                 //     heart_token_owner: Pubkey,
                                 //     verified_credentials: Vec<VerifiedCredential>
                                 // },
-                                // SignWithHeartTokens {
+                                // SignWithVaults {
                                 //     instructions: Vec<Instruction>,
                                 //     // constraints: Vec<Constraint>
                                 // }
 }
 
-impl HeartTokenInstruction {
+impl VaultInstruction {
     /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
@@ -107,7 +112,7 @@ impl HeartTokenInstruction {
         Ok(match tag {
             0 => {
                 // let (pubkey, _rest) = Self::unpack_pubkey(rest)?;
-                Self::CreateHeartToken {
+                Self::CreateVault {
                     // heart_token_owner: pubkey,
                 }
             }
@@ -138,7 +143,7 @@ impl HeartTokenInstruction {
                         issuer_required_credentials,
                     }
                 } else {
-                    return Err(HeartTokenError::InvalidInstruction.into());
+                    return Err(VaultError::InvalidInstruction.into());
                 }
             }
             4 => {
@@ -147,7 +152,7 @@ impl HeartTokenInstruction {
                     // claim_type_id: pubkey,
                 }
             }
-            _ => return Err(HeartTokenError::InvalidInstruction.into()),
+            _ => return Err(VaultError::InvalidInstruction.into()),
         })
     }
     fn unpack_pubkey(input: &[u8]) -> Result<(Pubkey, &[u8]), ProgramError> {
@@ -156,14 +161,14 @@ impl HeartTokenInstruction {
             let pk = Pubkey::new(key);
             Ok((pk, rest))
         } else {
-            Err(HeartTokenError::InvalidInstruction.into())
+            Err(VaultError::InvalidInstruction.into())
         }
     }
 
     fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::CreateHeartToken {} => {
+            &Self::CreateVault {} => {
                 buf.push(0);
                 // buf.extend_from_slice(heart_token_owner.as_ref());
             }
@@ -212,7 +217,7 @@ impl HeartTokenInstruction {
             // AccountMeta::new_readonly(*check_program_id, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = HeartTokenInstruction::IssueClaim {
+        let data = VaultInstruction::IssueClaim {
             claim_type_id: *claim_type_id,
             subject_heart_token_id: *subject_heart_token_id,
         }
@@ -236,7 +241,7 @@ impl HeartTokenInstruction {
             AccountMeta::new_readonly(*heart_token_minter, true),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = HeartTokenInstruction::CreateHeartToken {}.pack();
+        let data = VaultInstruction::CreateVault {}.pack();
         Ok(Instruction {
             program_id: *heart_token_program_id,
             accounts,
@@ -255,7 +260,7 @@ impl HeartTokenInstruction {
             AccountMeta::new(*storage_account, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = HeartTokenInstruction::CreateSimpleClaimCheck {
+        let data = VaultInstruction::CreateSimpleClaimCheck {
             subject_required_credentials: *subject_required_credentials,
             issuer_required_credentials: *issuer_required_credentials,
         }
@@ -271,7 +276,7 @@ impl HeartTokenInstruction {
         heart_token_program_id: &Pubkey,
         account_metas: Vec<AccountMeta>,
     ) -> Result<Instruction, ProgramError> {
-        let data = HeartTokenInstruction::ExecuteSimpleClaimCheck {}
+        let data = VaultInstruction::ExecuteSimpleClaimCheck {}
         .pack();
         Ok(Instruction {
             program_id: *heart_token_program_id,
@@ -289,7 +294,7 @@ impl HeartTokenInstruction {
             // AccountMeta::new_readonly(*check_program_id, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = HeartTokenInstruction::CreateClaimType {
+        let data = VaultInstruction::CreateClaimType {
             check_program_id: *check_program_id,
             check_program_instruction_id,
         }

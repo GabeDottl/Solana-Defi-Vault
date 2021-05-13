@@ -13,10 +13,10 @@ use solana_program::{
 use std::str::FromStr;
 
 use crate::{
-  error::{EscrowError, HeartTokenError},
-  instruction::{EscrowInstruction, HeartTokenInstruction},
+  error::{EscrowError, VaultError},
+  instruction::{EscrowInstruction, VaultInstruction},
   state::{
-    Claim, ClaimType, CredentialType, Escrow, HeartToken, SimpleClaimCheck,
+    Claim, ClaimType, CredentialType, Escrow, Vault, SimpleClaimCheck,
     MAX_REQUIRED_CREDENTIALS, NULL_PUBKEY,
   },
 };
@@ -25,20 +25,20 @@ pub const GOD_PUBKEY_STR: &str = "5cjmBetNkWYa2ZKZTsTMreNZQNSpwyhDrTVsynJVKZ9C";
 
 pub struct Processor;
 impl Processor {
-  // HeartToken Process
+  // Vault Process
   pub fn process_heart_token(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
   ) -> ProgramResult {
-    let instruction = HeartTokenInstruction::unpack(instruction_data)?;
+    let instruction = VaultInstruction::unpack(instruction_data)?;
 
     match instruction {
-      HeartTokenInstruction::CreateHeartToken {} => {
-        msg!("Instruction: CreateHeartToken");
+      VaultInstruction::CreateVault {} => {
+        msg!("Instruction: CreateVault");
         Self::process_create_heart_token(accounts, program_id)
       }
-      HeartTokenInstruction::CreateClaimType {
+      VaultInstruction::CreateClaimType {
         ref check_program_id,
         check_program_instruction_id,
       } => {
@@ -50,14 +50,14 @@ impl Processor {
           program_id,
         )
       }
-      HeartTokenInstruction::IssueClaim {
+      VaultInstruction::IssueClaim {
         ref claim_type_id,
         ref subject_heart_token_id,
       } => {
         msg!("Instruction: IssueClaim");
         Self::process_issue_claim(accounts, claim_type_id, subject_heart_token_id, program_id)
       }
-      HeartTokenInstruction::CreateSimpleClaimCheck {
+      VaultInstruction::CreateSimpleClaimCheck {
         ref subject_required_credentials,
         ref issuer_required_credentials,
       } => {
@@ -69,7 +69,7 @@ impl Processor {
           program_id,
         )
       }
-      HeartTokenInstruction::ExecuteSimpleClaimCheck {} => {
+      VaultInstruction::ExecuteSimpleClaimCheck {} => {
         msg!("Instruction: ExecuteSimpleClaimCheck");
         Self::process_execute_simple_claim_check(accounts, program_id)
       }
@@ -81,20 +81,20 @@ impl Processor {
     if account.key.to_string() == GOD_PUBKEY_STR {
       return Ok(());
     }
-    // Ensure minter account is owned by HeartToken program.
+    // Ensure minter account is owned by Vault program.
     if account.owner != program_id {
       msg!("Invalid owner!");
-      return Err(HeartTokenError::InvalidMinter.into());
+      return Err(VaultError::InvalidMinter.into());
     }
     // Check that minter has Minter credential.
-    let account_info = HeartToken::unpack_unchecked(&account.data.borrow())?;
+    let account_info = Vault::unpack_unchecked(&account.data.borrow())?;
     if !account_info
       .verified_credentials
       .iter()
-      .any(|&vc| vc.type_ == CredentialType::HeartTokenMinter)
+      .any(|&vc| vc.type_ == CredentialType::VaultMinter)
     {
       msg!("No Minter VC!");
-      return Err(HeartTokenError::InvalidMinter.into());
+      return Err(VaultError::InvalidMinter.into());
     }
     Ok(())
   }
@@ -122,10 +122,10 @@ impl Processor {
       heart_token_account.lamports(),
       heart_token_account.data_len(),
     ) {
-      return Err(HeartTokenError::NotRentExempt.into());
+      return Err(VaultError::NotRentExempt.into());
     }
 
-    let mut heart_token_info = HeartToken::unpack_unchecked(&heart_token_account.data.borrow())?;
+    let mut heart_token_info = Vault::unpack_unchecked(&heart_token_account.data.borrow())?;
     if heart_token_info.is_initialized() {
       return Err(ProgramError::AccountAlreadyInitialized);
     }
@@ -133,7 +133,7 @@ impl Processor {
     heart_token_info.owner_pubkey = *owner.key;
 
     // Write the heart_token info to the actual account.
-    HeartToken::pack(heart_token_info, &mut heart_token_account.data.borrow_mut())?;
+    Vault::pack(heart_token_info, &mut heart_token_account.data.borrow_mut())?;
 
     Ok(())
   }
@@ -149,7 +149,7 @@ impl Processor {
 
     let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
-      return Err(HeartTokenError::NotRentExempt.into());
+      return Err(VaultError::NotRentExempt.into());
     }
 
     let mut claim_type_info = ClaimType::unpack_unchecked(&storage_account.data.borrow())?;
@@ -176,7 +176,7 @@ impl Processor {
     // Ensure rent is paid for the claim-storage.
     let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
-      return Err(HeartTokenError::NotRentExempt.into());
+      return Err(VaultError::NotRentExempt.into());
     }
     let claim_type_account = next_account_info(account_info_iter)?;
     let claim_check_program = next_account_info(account_info_iter)?;
@@ -276,12 +276,12 @@ impl Processor {
 
     // let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     // if !rent.is_exempt(storage_account.lamports(), storage_account.data_len()) {
-    //   return Err(HeartTokenError::NotRentExempt.into());
+    //   return Err(VaultError::NotRentExempt.into());
     // }
 
     let simple_claim_check = SimpleClaimCheck::unpack_unchecked(&storage_account.data.borrow())?;
     if !simple_claim_check.is_initialized() {
-      return Err(HeartTokenError::InvalidInstruction.into());
+      return Err(VaultError::InvalidInstruction.into());
     }
     let subject_heart_token = next_account_info(account_info_iter)?;
     let issuer_heart_token = next_account_info(account_info_iter)?;
