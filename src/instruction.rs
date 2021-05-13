@@ -1,4 +1,4 @@
-use crate::error::{EscrowError::InvalidInstruction, VaultError};
+use crate::error::{VaultError::InvalidInstruction, VaultError};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -28,7 +28,8 @@ pub enum VaultInstruction {
     ///   strategy and gets back X tokens, which it forwards to the user, minus a fee.
     ///
     /// Strategies should be contained within a single program and should implement the
-    /// StrategyInstruction interface below.
+    /// StrategyInstruction interface below. If a Strategy requires additional data, it can specify
+    /// it in a data account which will be included in calls to the strategy instance.
     ///
     /// Accounts expected:
     /// `[signer]` initializer of the lx token account
@@ -37,6 +38,7 @@ pub enum VaultInstruction {
     /// `[]` The llX Token ID with this program is a mint authority.
     /// `[]` The strategy program's pubkey.
     /// `[]` The rent sysvar
+    /// `[]` (Optional) Strategy instance data account
     ConfigureVault {
         // TODO: Governance address, strategist address, keeper address.
         // TODO: Withdrawal fee.
@@ -85,21 +87,25 @@ pub enum StrategyInstruction {
     /// Accounts expected:
     /// 1. `[signer]` Source token (X) wallet
     /// 2. `[]` Target wallet for derivative token (lX)
+    /// 3. `[]` (Optional) Strategy instance data account
+    /// TODO: Additional signers.
     Deposit {
         amount: u64, // # of X tokens.
     },
     /// Withdraws a token from the strategy.
     ///
     /// Accounts expected:
-    /// 2. `[signer]` Source Wallet for derivative token (lX).
-    /// 1. `[]` Target token (X) wallet destination.
+    /// 1. `[signer]` Source Wallet for derivative token (lX).
+    /// 2. `[]` Target token (X) wallet destination.
+    /// 3. `[]` (Optional) Strategy instance data account
+    /// TODO: Additional signers.
     Withdraw {
         amount: u64, // # of lX tokens.
     },
 }
 
 impl StrategyInstruction {
-    /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
+    /// Unpacks a byte buffer into a [VaultInstruction](enum.VaultInstruction.html).
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
 
@@ -182,7 +188,7 @@ impl StrategyInstruction {
 }
 
 impl VaultInstruction {
-    /// Unpacks a byte buffer into a [EscrowInstruction](enum.EscrowInstruction.html).
+    /// Unpacks a byte buffer into a [VaultInstruction](enum.VaultInstruction.html).
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         let (tag, rest) = input.split_first().ok_or(InvalidInstruction)?;
 

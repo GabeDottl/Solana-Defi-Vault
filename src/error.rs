@@ -21,18 +21,3 @@ impl From<VaultError> for ProgramError {
       ProgramError::Custom(e as u32)
   }
 }
-
-#[derive(Error, Debug, Copy, Clone)]
-pub enum EscrowError {
-    /// Invalid instruction
-    #[error("Invalid Instruction")]
-    InvalidInstruction,
-    #[error("Not Rent Exempt")]
-    NotRentExempt,
-}
-
-impl From<EscrowError> for ProgramError {
-  fn from(e: EscrowError) -> Self {
-      ProgramError::Custom(e as u32)
-  }
-}
