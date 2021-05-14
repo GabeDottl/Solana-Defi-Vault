@@ -253,7 +253,7 @@ impl AddPacked for ProgramTest {
 
 // Based on Record functional test: https://github.com/solana-labs/solana-program-library/blob/2b3f71ead5b81f4ea4a2fd3e4fe9583a6e39b6a4/record/program/tests/functional.rs
 // Unisqap example test https://github.com/dzmitry-lahoda/solana-uniswap-example/blob/a8f108adefe8fa61a947d408a5ce0064b1d8c2df/tests/tests.rs
-// DO NOT COMMIT XXX: #[tokio::test]
+#[tokio::test]
 async fn test_hodl_vault() {
   // Create a SPL token
   // Create a main token account for Alice
@@ -263,7 +263,8 @@ async fn test_hodl_vault() {
   let authority = Keypair::new();
   let seed = "token";
   // X, lX, llX mints, client accounts, and vault accounts. We don't need all of these, but succint.
-  let mint_client_vault_accounts = (1..3).map(|_| (Keypair::new(), Keypair::new(), Keypair::new())).collect::<Vec<_>>();
+  let mint_client_vault_accounts = (1..4).map(|_| (Keypair::new(), Keypair::new(), Keypair::new())).collect::<Vec<_>>();
+  let vault_storage_account = Keypair::new();
   // let mint_x = Keypair::new();
   // let mint_lx = Keypair::new();
   // let mint_llx = Keypair::new();
@@ -271,7 +272,6 @@ async fn test_hodl_vault() {
   // let client_llx_token_account = Keypair::new();
   // let vault_x_token_account = Keypair::new();
   // let vault_lx_token_account = Keypair::new();
-  // let vault_storage_account = Keypair::new();
 
   // let account = Pubkey::create_with_seed(&authority.pubkey(), seed, &spl_token::id()).unwrap();
   let mut program_test = ProgramTest::new(
@@ -288,8 +288,7 @@ async fn test_hodl_vault() {
   // Start the test client
   let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
 
-  // Mint the various relevant tokens.
-  
+  // Mint our tokens & setup accounts
   for (mint, client_account, vault_account) in mint_client_vault_accounts.iter() {
     let mut instructions = Vec::with_capacity(6);
     instructions.push(system_instruction::create_account(
@@ -321,7 +320,7 @@ async fn test_hodl_vault() {
         &spl_token::id(),
         &token_account.pubkey(),
         &mint.pubkey(),
-        &authority.pubkey(),
+        &payer.pubkey(),
       )
       .unwrap());
     }
@@ -331,6 +330,59 @@ async fn test_hodl_vault() {
     // Create mint & initialize accounts.
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
   }
+
+  // Create Vault account
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      // Create Vault storage acccount.
+      system_instruction::create_account(
+        &payer.pubkey(),
+        &vault_storage_account.pubkey(),
+        1.max(Rent::default().minimum_balance(::Vault::state::Vault::LEN)),
+        ::Vault::state::Vault::LEN as u64,
+        &::Vault::id(),
+      ),
+      VaultInstruction::initialize_vault(
+        &::Vault::id(),
+        &payer.pubkey(),
+        &vault_storage_account.pubkey(),
+        &mint_client_vault_accounts[1].2.pubkey(), // vault_lx_token account
+        &mint_client_vault_accounts[2].0.pubkey(), // llx mint account
+        &spl_token::id(),
+        &::Vault::id(), // Strategy program ID
+        1, // deposit instruction ID
+        2, // withdraw instruction ID
+      )
+      .unwrap(),
+    ],
+    Some(&payer.pubkey()),
+  );
+  transaction.sign(
+    &[
+      &payer,
+      &vault_storage_account,
+      // &mint_client_vault_accounts[1].2,
+      // &mint_client_vault_accounts[2].0,
+    ],
+    recent_blockhash,
+  );
+  // Create Alice's account with 1000 $A & temp-account for vault.
+  assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+  // Verify some data on Alice's temp account for sanity checking & fun.
+  // let alice_account_temp_account = banks_client
+  //   .get_account(vault_lx_token_account.pubkey())
+  //   .await
+  //   .unwrap()
+  //   .expect("Account unretrievable");
+  // assert_eq!(alice_account_temp_account.owner, spl_token::id());
+  // let internal_account =
+  //   spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
+  // let (pda, _bump_seed) = Pubkey::find_program_address(&[b"vault"], &Vault::id());
+
+  // // Ensure that the vault account's ownership
+  // assert_eq!(internal_account.owner, pda);
+}
+
 
 
   // // Create accounts for holding coins.
@@ -465,4 +517,3 @@ async fn test_hodl_vault() {
 
   // // Ensure that the escrow account's ownership
   // assert_eq!(internal_account.owner, pda);
-}

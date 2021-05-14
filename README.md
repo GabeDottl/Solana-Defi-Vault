@@ -3,6 +3,15 @@ Cove is a platform for Solana Vaults.
 
 See src/instructions.rs for the API.
 
+Within Yearn, the derivative of a X token would be yX - within Laguna Finance, we us lX. llX is used
+for 2nd order derivatives.
+
+## TODO
+* Cleanup
+* Unit tests
+* Security audit
+* More example vaults
+
 ### Environment Setup
 1. Install Rust from https://rustup.rs/
 2. Install Solana v1.6.2 or later from https://docs.solana.com/cli/install-solana-cli-tools#use-solanas-install-tool

@@ -39,7 +39,7 @@ pub enum VaultInstruction {
     /// `[]` The strategy program's pubkey.
     /// `[]` The rent sysvar
     /// `[]` (Optional) Strategy instance data account
-    ConfigureVault {
+    InitializeVault {
         // TODO: Governance address, strategist address, keeper address.
         // TODO: Withdrawal fee.
         // https://github.com/yearn/yearn-vaults/blob/master/contracts/BaseStrategy.sol#L781
@@ -196,7 +196,7 @@ impl VaultInstruction {
             0 => {
                 let strategy_program_deposit_instruction_id = *rest.get(0).unwrap();
                 let strategy_program_withdraw_instruction_id = *rest.get(1).unwrap();
-                Self::ConfigureVault {
+                Self::InitializeVault {
                     strategy_program_deposit_instruction_id,
                     strategy_program_withdraw_instruction_id,
                 }
@@ -220,45 +220,49 @@ impl VaultInstruction {
     fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
         match self {
-            &Self::ConfigureVault {
+            &Self::InitializeVault {
                 strategy_program_deposit_instruction_id,
                 strategy_program_withdraw_instruction_id,
             } => {
-                buf.push(1);
+                buf.push(0);
                 buf.push(strategy_program_deposit_instruction_id);
                 buf.push(strategy_program_withdraw_instruction_id);
             }
             &Self::Deposit { amount } => {
-                buf.push(2);
+                buf.push(1);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
 
             &Self::Withdraw { amount } => {
-                buf.push(3);
+                buf.push(2);
                 buf.extend_from_slice(&amount.to_le_bytes());
             }
         }
         buf
     }
 
-    pub fn configure_vault(
+    pub fn initialize_vault(
         vault_program_id: &Pubkey,
+        initializer: &Pubkey,
         vault_storage_account: &Pubkey,
         lx_token_account: &Pubkey,
         llx_token_mint_id: &Pubkey,
+        token_program: &Pubkey,
         strategy_program: &Pubkey,
         strategy_program_deposit_instruction_id: u8,
         strategy_program_withdraw_instruction_id: u8,
     ) -> Result<Instruction, ProgramError> {
         
         let accounts = vec![
+            AccountMeta::new_readonly(*initializer, true),
             AccountMeta::new(*vault_storage_account, false),
             AccountMeta::new_readonly(*lx_token_account, false),
             AccountMeta::new_readonly(*llx_token_mint_id, false),
+            AccountMeta::new_readonly(*token_program, false),
             AccountMeta::new_readonly(*strategy_program, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
-        let data = VaultInstruction::ConfigureVault {
+        let data = VaultInstruction::InitializeVault {
             strategy_program_deposit_instruction_id,
             strategy_program_withdraw_instruction_id,
         }

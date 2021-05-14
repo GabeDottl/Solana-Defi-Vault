@@ -26,15 +26,16 @@ impl Processor {
     accounts: &[AccountInfo],
     instruction_data: &[u8],
   ) -> ProgramResult {
+    msg!("Unpacking instruction");
     let instruction = VaultInstruction::unpack(instruction_data)?;
 
     match instruction {
-      VaultInstruction::ConfigureVault {
+      VaultInstruction::InitializeVault {
         strategy_program_deposit_instruction_id,
         strategy_program_withdraw_instruction_id
       } => {
-        msg!("Instruction: ConfigureVault");
-        Self::process_configure_vault(
+        msg!("Instruction: InitializeVault");
+        Self::process_initialize_vault(
           program_id,
           accounts,
           strategy_program_deposit_instruction_id,
@@ -52,21 +53,24 @@ impl Processor {
     }
   }
 
-  fn process_configure_vault(
+  fn process_initialize_vault(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     strategy_program_deposit_instruction_id: u8,
     strategy_program_withdraw_instruction_id: u8,
   ) -> ProgramResult {
+    msg!("Initializing vault");
     let account_info_iter = &mut accounts.iter();
 
     let initializer = next_account_info(account_info_iter)?;
     let storage_account = next_account_info(account_info_iter)?;
     let lx_token_account = next_account_info(account_info_iter)?;
     let llx_token_mint_id = next_account_info(account_info_iter)?;
+    let token_program = next_account_info(account_info_iter)?;
     let strategy_program = next_account_info(account_info_iter)?;
     let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
-    
+
+    msg!("Initializing vault");
     if !initializer.is_signer {
       return Err(ProgramError::MissingRequiredSignature);
     }
@@ -97,7 +101,7 @@ impl Processor {
     // Transfer ownership of the temp account to this program via a derived address.
     let (pda, _bump_seed) = Pubkey::find_program_address(&[b"vault"], program_id);
 
-    let token_program = next_account_info(account_info_iter)?;
+    
     let owner_change_ix = spl_token::instruction::set_authority(
       token_program.key,
       lx_token_account.key,
@@ -135,7 +139,7 @@ impl Processor {
   }
 
 
-  // fn process_configure_vault(
+  // fn process_initialize_vault(
   //   accounts: &[AccountInfo],
   //   strategy_program_id: &Pubkey,
   //   strategy_program_instruction_id: u8,
