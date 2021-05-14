@@ -1,4 +1,4 @@
-use crate::error::{VaultError::InvalidInstruction, VaultError};
+use crate::error::{VaultError, VaultError::InvalidInstruction};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
@@ -67,9 +67,8 @@ pub enum VaultInstruction {
     Withdraw {
         amount: u64, // # of derivative tokens.
     },
-
     // / An implementation of a Hodl strategy.
-    // / 
+    // /
     // / TODO: Move this to a separate program?
     // ConfigureHodlStrategy{},
     // HodlStrategyDeposit {
@@ -150,20 +149,20 @@ impl StrategyInstruction {
         amount: u64,
     ) -> Result<Instruction, ProgramError> {
         let data = VaultInstruction::Deposit { amount }.pack();
-    
+
         let accounts = vec![
             AccountMeta::new(*source_pubkey, false),
             AccountMeta::new(*destination_pubkey, false),
             AccountMeta::new_readonly(*token_program_id, false),
         ];
-    
+
         Ok(Instruction {
             program_id: *strategy_program_id,
             accounts,
             data,
         })
     }
-    
+
     pub fn withdraw(
         strategy_program_id: &Pubkey,
         token_program_id: &Pubkey,
@@ -178,7 +177,7 @@ impl StrategyInstruction {
             AccountMeta::new(*destination_pubkey, false),
             AccountMeta::new_readonly(*token_program_id, false),
         ];
-    
+
         Ok(Instruction {
             program_id: *strategy_program_id,
             accounts,
@@ -252,7 +251,6 @@ impl VaultInstruction {
         strategy_program_deposit_instruction_id: u8,
         strategy_program_withdraw_instruction_id: u8,
     ) -> Result<Instruction, ProgramError> {
-        
         let accounts = vec![
             AccountMeta::new_readonly(*initializer, true),
             AccountMeta::new(*vault_storage_account, false),
@@ -281,20 +279,20 @@ impl VaultInstruction {
         amount: u64,
     ) -> Result<Instruction, ProgramError> {
         let data = VaultInstruction::Deposit { amount }.pack();
-    
+
         let accounts = vec![
             AccountMeta::new(*source_pubkey, false),
             AccountMeta::new(*destination_pubkey, false),
             AccountMeta::new_readonly(*token_program_id, false),
         ];
-    
+
         Ok(Instruction {
             program_id: *vault_program_id,
             accounts,
             data,
         })
     }
-    
+
     pub fn withdraw(
         vault_program_id: &Pubkey,
         token_program_id: &Pubkey,
@@ -309,7 +307,7 @@ impl VaultInstruction {
             AccountMeta::new(*destination_pubkey, false),
             AccountMeta::new_readonly(*token_program_id, false),
         ];
-    
+
         Ok(Instruction {
             program_id: *vault_program_id,
             accounts,
