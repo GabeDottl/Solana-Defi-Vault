@@ -274,15 +274,15 @@ impl VaultInstruction {
         let mut accounts = vec![
             AccountMeta::new_readonly(*initializer, true),
             AccountMeta::new(*vault_storage_account, false),
-            AccountMeta::new_readonly(*lx_token_account, false),
-            AccountMeta::new_readonly(*llx_token_mint_id, false),
+            AccountMeta::new(*lx_token_account, false),
+            AccountMeta::new(*llx_token_mint_id, false),
             AccountMeta::new_readonly(*token_program, false),
             AccountMeta::new_readonly(*strategy_program, false),
             AccountMeta::new_readonly(sysvar::rent::id(), false),
         ];
         assert_eq!(hodl, x_token_account.is_some());
         if hodl {
-            accounts.push(AccountMeta::new_readonly(x_token_account.unwrap(), false));
+            accounts.push(AccountMeta::new(x_token_account.unwrap(), false));
         }
         let data = VaultInstruction::InitializeVault {
             hodl,

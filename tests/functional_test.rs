@@ -356,11 +356,11 @@ async fn test_hodl_vault() {
         &mint_client_vault_accounts[1].2.pubkey(), // vault_lx_token account
         &mint_client_vault_accounts[2].0.pubkey(), // llx mint account
         &spl_token::id(),
-        &::Vault::id(), // Strategy program ID
-        true, // hodl
+        &::Vault::id(),                                          // Strategy program ID
+        true,                                                    // hodl
         COption::Some(mint_client_vault_accounts[0].2.pubkey()), // vault_lx_token account
-        1, // deposit instruction ID
-        2, // withdraw instruction ID
+        1,                                                       // deposit instruction ID
+        2,                                                       // withdraw instruction ID
       )
       .unwrap(),
     ],
@@ -370,10 +370,10 @@ async fn test_hodl_vault() {
   // Create Alice's account with 1000 $A & temp-account for vault.
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
-  // Create Vault account
+  // Transact with hodl vault.
+  let (pda, bump_seed) = Pubkey::find_program_address(&[b"vault"], &::Vault::id());
   let mut transaction = Transaction::new_with_payer(
     &[
-      // Create Vault storage acccount.
       spl_token::instruction::mint_to(
         &spl_token::id(),
         &mint_client_vault_accounts[0].0.pubkey(),
@@ -390,6 +390,19 @@ async fn test_hodl_vault() {
         &mint_client_vault_accounts[1].2.pubkey(), // vault_lx_token account
         vec![
           AccountMeta::new_readonly(payer.pubkey(), true), // source authority
+          AccountMeta::new_readonly(vault_storage_account.pubkey(), false),
+          AccountMeta::new(mint_client_vault_accounts[0].2.pubkey(), false), // hodl destination.
+        ],
+        100,
+      )
+      .unwrap(),
+      VaultInstruction::withdraw(
+        &::Vault::id(),
+        &spl_token::id(),
+        &mint_client_vault_accounts[0].2.pubkey(), // vault_x_token account
+        &mint_client_vault_accounts[0].1.pubkey(), // client_x_token account
+        vec![
+          AccountMeta::new_readonly(pda, false),
           AccountMeta::new_readonly(vault_storage_account.pubkey(), false),
           AccountMeta::new(mint_client_vault_accounts[0].2.pubkey(), false), // hodl destination.
         ],

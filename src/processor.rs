@@ -91,8 +91,27 @@ impl Processor {
     storage_info.llx_token_mint_id = *llx_token_mint_id.key;
     msg!("Setting auth");
     if hodl {
+      msg!("Transferring program X token ownership");
       let x_token_account = next_account_info(account_info_iter)?;
       storage_info.x_token_account = COption::Some(*x_token_account.key);
+      // Transfer ownership of the temp account to this program via a derived address.
+      let (pda, _bump_seed) = Pubkey::find_program_address(&[b"vault"], program_id);
+      let account_owner_change_ix = spl_token::instruction::set_authority(
+        token_program.key,
+        x_token_account.key,
+        Some(&pda),
+        spl_token::instruction::AuthorityType::AccountOwner,
+        initializer.key,
+        &[&initializer.key],
+      )?;
+      invoke(
+        &account_owner_change_ix,
+        &[
+          x_token_account.clone(),
+          initializer.clone(),
+          token_program.clone(),
+        ],
+      )?;
     }
     storage_info.strategy_program_id = *strategy_program.key;
     storage_info.strategy_program_deposit_instruction_id = strategy_program_deposit_instruction_id;
@@ -170,6 +189,10 @@ impl Processor {
     let source_token_account = next_account_info(account_info_iter)?;
     let target_token_account = next_account_info(account_info_iter)?;
     // Additional account metas:
+    if is_deposit {
+      
+    }
+
     let source_authority = next_account_info(account_info_iter)?;
     let storage_account = next_account_info(account_info_iter)?;
 
@@ -182,9 +205,10 @@ impl Processor {
     // TODO: Move around lX & llX tokens.
     if storage_info.hodl {
       let x_token_account = next_account_info(account_info_iter)?;
-      msg!("Calling the token program to transfer tokens to the escrow's initializer...");
+      msg!("Calling the token program to transfer tokens");
       if is_deposit {
-        let transfer_to_initializer_ix = spl_token::instruction::transfer(
+        
+        let transfer_to_vault_ix = spl_token::instruction::transfer(
           token_program.key,
           source_token_account.key,
           x_token_account.key,
@@ -192,8 +216,9 @@ impl Processor {
           &[&source_authority.key],
           amount,
         )?;
+        msg!("Depositing to hodl account");
         invoke(
-          &transfer_to_initializer_ix,
+          &transfer_to_vault_ix,
           &[
             source_token_account.clone(),
             x_token_account.clone(),
@@ -202,8 +227,8 @@ impl Processor {
           ],
         )?;
       } else {
-        let (pda, _bump_seed) = Pubkey::find_program_address(&[b"vault"], program_id);
-        let transfer_to_initializer_ix = spl_token::instruction::transfer(
+        let (pda, bump_seed) = Pubkey::find_program_address(&[b"vault"], program_id);
+        let transfer_to_client_ix = spl_token::instruction::transfer(
           token_program.key,
           x_token_account.key,
           target_token_account.key,
@@ -211,10 +236,11 @@ impl Processor {
           &[&pda],
           amount,
         )?;
+        msg!("Withdrawing from hodl account");
         invoke_signed(
-          &transfer_to_initializer_ix,
-          &[x_token_account.clone(), target_token_account.clone(), token_program.clone()],
-          &[&[b"vault"]],
+          &transfer_to_client_ix,
+          &[x_token_account.clone(), target_token_account.clone(),source_authority.clone(), token_program.clone()],
+          &[&[&b"vault"[..], &[bump_seed]]],
         )?;
         // transfer(token_program, source_token_account, x_token_account, pda, amount);
       }
