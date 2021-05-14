@@ -70,7 +70,6 @@ impl Processor {
     let strategy_program = next_account_info(account_info_iter)?;
     let rent = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
 
-
     if *lx_token_account.owner != spl_token::id() || *llx_token_mint_id.owner != spl_token::id() {
       return Err(ProgramError::IncorrectProgramId);
     }
@@ -197,12 +196,14 @@ impl Processor {
 
     // Charge fees
     if is_deposit {
-      // Mint lX tokens to 
+      // TODO(001): implement.
+      msg!("Mint lX tokens to client account");
     } else {
-      // Transfer & burn lX tokens from client
+      // TODO(002): implement.
+      msg!("Transfer & burn lX tokens from client");
     }
 
-    // TODO: Move around lX & llX tokens.
+    // Check if this is a HODL Vault; if so, we deposit & withdraw from 
     if storage_info.hodl {
       let x_token_account = next_account_info(account_info_iter)?;
       msg!("Calling the token program to transfer tokens");
@@ -238,9 +239,23 @@ impl Processor {
         msg!("Withdrawing from hodl account");
         invoke_signed(
           &transfer_to_client_ix,
-          &[x_token_account.clone(), target_token_account.clone(),source_authority.clone(), token_program.clone()],
+          &[
+            x_token_account.clone(),
+            target_token_account.clone(),
+            source_authority.clone(),
+            token_program.clone(),
+          ],
           &[&[&b"vault"[..], &[bump_seed]]],
         )?;
+      }
+    }
+    else {
+      if is_deposit {
+        // TODO(003): implement.
+        msg!("Depositing into strategy");
+      } else {
+        // TODO(003): implement.
+        msg!("Withdrawing from strategy");
       }
     }
     Ok(())

@@ -2,8 +2,8 @@ use crate::error::{VaultError, VaultError::InvalidInstruction};
 use solana_program::program_error::ProgramError;
 use solana_program::{
     instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
     program_option::COption,
+    pubkey::Pubkey,
     sysvar,
 };
 
