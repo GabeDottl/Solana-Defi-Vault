@@ -13,6 +13,7 @@ for 2nd order derivatives.
 * More example vaults
 * Add fees
 * Add governance? Or put this a level above.
+* Allow multisig client wallets (i.e. support multiple signers)
 
 ### Environment Setup
 1. Install Rust from https://rustup.rs/

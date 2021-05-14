@@ -73,25 +73,6 @@ pub enum VaultInstruction {
     Withdraw {
         amount: u64, // # of derivative tokens.
     },
-    // / An implementation of a Hodl strategy.
-    // /
-    // / TODO: Move this to a separate program?
-
-    // / Initializes a hodl strategy.
-    // /
-    // / Accounts expected:
-    // / 1 `[signer]` initializer of tokens
-    // / 1. `[writable]` Storage account
-    // / 2. `[]` X token wallet
-    // / 2. `[]` lx mint
-    // / 3. `[]` The rent sysvar
-    // InitializeHodlStrategy{},
-    // HodlStrategyDeposit {
-    //     amount: u64,
-    // },
-    // HodlStrategyWithdraw {
-    //     amount: u64,
-    // }
 }
 
 // Strategy programs should implement the following interface for strategies.
@@ -211,10 +192,7 @@ impl VaultInstruction {
                     strategy_program_withdraw_instruction_id,
                 }
             }
-            // 3 => {
-            //     Self::InitializeHodlStrategy{}
-            // }
-            1 | 2 | 4 | 5 => {
+            1 | 2 => {
                 let amount = rest
                     .get(..8)
                     .and_then(|slice| slice.try_into().ok())
@@ -223,8 +201,6 @@ impl VaultInstruction {
                 match tag {
                     1 => Self::Deposit { amount },
                     2 => Self::Withdraw { amount },
-                    // 4 => Self::HodlStrategyDeposit { amount },
-                    // 5 => Self::HodlStrategyWithdraw { amount },
                     _ => return Err(VaultError::InvalidInstruction.into()),
                 }
             }
@@ -332,27 +308,6 @@ impl VaultInstruction {
             additional_account_metas,
         );
     }
-    // pub fn withdraw(
-    //     vault_program_id: &Pubkey,
-    //     token_program_id: &Pubkey,
-    //     source_pubkey: &Pubkey,
-    //     target_pubkey: &Pubkey,
-    //     amount: u64,
-    // ) -> Result<Instruction, ProgramError> {
-    //     let data = VaultInstruction::Deposit { amount }.pack();
-
-    //     let accounts = vec![
-    //         AccountMeta::new(*source_pubkey, false),
-    //         AccountMeta::new(*target_pubkey, false),
-    //         AccountMeta::new_readonly(*token_program_id, false),
-    //     ];
-
-    //     Ok(Instruction {
-    //         program_id: *vault_program_id,
-    //         accounts,
-    //         data,
-    //     })
-    // }
 }
 
 pub fn create_transfer(
