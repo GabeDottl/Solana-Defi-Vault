@@ -120,6 +120,30 @@ impl Processor {
                 token_program.clone(),
             ],
         )?;
+        let owner_change_ix = spl_token::instruction::set_authority(
+          token_program.key,
+          llx_token_mint_id.key,
+          Some(&pda),
+          spl_token::instruction::AuthorityType::MintTokens,
+          initializer.key,
+          &[&initializer.key],
+      )?;
+
+      msg!("Calling the token program to transfer token account ownership...");
+      msg!(
+          "Token program: {}. Transferring minting control {} -> {}",
+          token_program.key,
+          initializer.key,
+          pda
+      );
+      invoke(
+          &owner_change_ix,
+          &[
+              lx_token_account.clone(),
+              initializer.clone(),
+              token_program.clone(),
+          ],
+      )?;
         msg!("Called");
         Ok(())
     }
