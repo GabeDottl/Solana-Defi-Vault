@@ -1,6 +1,5 @@
 #![cfg(feature = "test-bpf")]
 
-use log::info;
 use {
   ::Vault::{entrypoint::process_instruction, id, instruction::VaultInstruction, state::Vault},
   assert_matches::*,
@@ -272,9 +271,6 @@ async fn create_tokens_and_accounts(
   num_tokens: u64,
   num_accounts: u64,
 ) -> Vec<Vec<Keypair>> {
-  info!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx");
-  info!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx");
-  info!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXx");
   let mint_client_vault_accounts = (1..(num_tokens + 1))
     .map(|_| {
       (1..(num_accounts + 2))

@@ -22,7 +22,6 @@ solana-sdk = "1.6.2"
 spl-token-swap = "2.1.0"
 solana-validator = "1.6.2"
 tokio = "1.5.0"
-log = "0.4"
 
 [lib]
 crate-type = ["cdylib", "lib"]
