@@ -260,10 +260,12 @@ async fn test_hodl_vault() {
   // Create temporary token account for Alice
   // let Vault::id() = Pubkey::new_unique();
   // TODO: Make authority derived from program?
-  let authority = Keypair::new();
+  // let authority = Keypair::new();
   let seed = "token";
   // X, lX, llX mints, client accounts, and vault accounts. We don't need all of these, but succint.
-  let mint_client_vault_accounts = (1..4).map(|_| (Keypair::new(), Keypair::new(), Keypair::new())).collect::<Vec<_>>();
+  let mint_client_vault_accounts = (1..4)
+    .map(|_| (Keypair::new(), Keypair::new(), Keypair::new()))
+    .collect::<Vec<_>>();
   let vault_storage_account = Keypair::new();
   // let mint_x = Keypair::new();
   // let mint_lx = Keypair::new();
@@ -316,17 +318,22 @@ async fn test_hodl_vault() {
         spl_token::state::Account::LEN as u64,
         &spl_token::id(),
       ));
-      instructions.push(spl_token::instruction::initialize_account(
-        &spl_token::id(),
-        &token_account.pubkey(),
-        &mint.pubkey(),
-        &payer.pubkey(),
-      )
-      .unwrap());
+      instructions.push(
+        spl_token::instruction::initialize_account(
+          &spl_token::id(),
+          &token_account.pubkey(),
+          &mint.pubkey(),
+          &payer.pubkey(),
+        )
+        .unwrap(),
+      );
     }
     let mut transaction = Transaction::new_with_payer(&instructions, Some(&payer.pubkey()));
     // Note: We can't sign with too many signatures, hence doing multiple transactions.
-    transaction.sign(&[&payer, &mint, &client_account, &vault_account], recent_blockhash);
+    transaction.sign(
+      &[&payer, &mint, &client_account, &vault_account],
+      recent_blockhash,
+    );
     // Create mint & initialize accounts.
     assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
   }
@@ -350,6 +357,8 @@ async fn test_hodl_vault() {
         &mint_client_vault_accounts[2].0.pubkey(), // llx mint account
         &spl_token::id(),
         &::Vault::id(), // Strategy program ID
+        true, // hodl
+        COption::Some(mint_client_vault_accounts[0].2.pubkey()), // vault_lx_token account
         1, // deposit instruction ID
         2, // withdraw instruction ID
       )
@@ -357,17 +366,45 @@ async fn test_hodl_vault() {
     ],
     Some(&payer.pubkey()),
   );
-  transaction.sign(
-    &[
-      &payer,
-      &vault_storage_account,
-      // &mint_client_vault_accounts[1].2,
-      // &mint_client_vault_accounts[2].0,
-    ],
-    recent_blockhash,
-  );
+  transaction.sign(&[&payer, &vault_storage_account], recent_blockhash);
   // Create Alice's account with 1000 $A & temp-account for vault.
   assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+
+  // Create Vault account
+  let mut transaction = Transaction::new_with_payer(
+    &[
+      // Create Vault storage acccount.
+      spl_token::instruction::mint_to(
+        &spl_token::id(),
+        &mint_client_vault_accounts[0].0.pubkey(),
+        &mint_client_vault_accounts[0].1.pubkey(),
+        &payer.pubkey(),
+        &[&payer.pubkey()],
+        1000,
+      )
+      .unwrap(),
+      VaultInstruction::deposit(
+        &::Vault::id(),
+        &spl_token::id(),
+        &mint_client_vault_accounts[0].1.pubkey(), // client_x_token account
+        &mint_client_vault_accounts[1].2.pubkey(), // vault_lx_token account
+        vec![
+          AccountMeta::new_readonly(payer.pubkey(), true), // source authority
+          AccountMeta::new_readonly(vault_storage_account.pubkey(), false),
+          AccountMeta::new(mint_client_vault_accounts[0].2.pubkey(), false), // hodl destination.
+        ],
+        100,
+      )
+      .unwrap(),
+    ],
+    Some(&payer.pubkey()),
+  );
+  //  &vault_storage_account,
+  // &mint_client_vault_accounts[0].0, &mint_client_vault_accounts[0].1
+  transaction.sign(&[&payer], recent_blockhash);
+  // Create Alice's account with 1000 $A & temp-account for vault.
+  assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+
   // Verify some data on Alice's temp account for sanity checking & fun.
   // let alice_account_temp_account = banks_client
   //   .get_account(vault_lx_token_account.pubkey())
@@ -383,137 +420,135 @@ async fn test_hodl_vault() {
   // assert_eq!(internal_account.owner, pda);
 }
 
+// // Create accounts for holding coins.
+// let mut transaction = Transaction::new_with_payer(
+//   &[
+//     // Create Alice's account & transfer 1000 $A.
+//     system_instruction::create_account(
+//       &payer.pubkey(),
+//       &client_x_token_account.pubkey(),
+//       1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
+//       spl_token::state::Account::LEN as u64,
+//       &spl_token::id(),
+//     ),
+//     spl_token::instruction::initialize_account(
+//       &spl_token::id(),
+//       &client_x_token_account.pubkey(),
+//       &mint_x.pubkey(),
+//       &authority.pubkey(),
+//     )
+//     .unwrap(),
+//     spl_token::instruction::mint_to(
+//       &spl_token::id(),
+//       &mint_x.pubkey(),
+//       &client_x_token_account.pubkey(),
+//       &payer.pubkey(),
+//       &[&payer.pubkey()],
+//       1000,
+//     )
+//     .unwrap(),
+//     // Create Alice's temp account.
+//     system_instruction::create_account(
+//       &payer.pubkey(),
+//       &vault_lx_token_account.pubkey(),
+//       1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
+//       spl_token::state::Account::LEN as u64,
+//       &spl_token::id(),
+//     ),
+//     spl_token::instruction::initialize_account(
+//       &spl_token::id(),
+//       &vault_lx_token_account.pubkey(),
+//       &mint_x.pubkey(),
+//       &client_x_token_account.pubkey(),
+//     )
+//     .unwrap(),
+//   ],
+//   Some(&payer.pubkey()),
+// );
 
+// transaction.sign(
+//   &[&payer, &client_x_token_account, &vault_lx_token_account],
+//   recent_blockhash,
+// );
+// // Create Alice's account with 1000 $A & temp-account for escrow.
+// assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
-  // // Create accounts for holding coins.
-  // let mut transaction = Transaction::new_with_payer(
-  //   &[
-  //     // Create Alice's account & transfer 1000 $A.
-  //     system_instruction::create_account(
-  //       &payer.pubkey(),
-  //       &client_x_token_account.pubkey(),
-  //       1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
-  //       spl_token::state::Account::LEN as u64,
-  //       &spl_token::id(),
-  //     ),
-  //     spl_token::instruction::initialize_account(
-  //       &spl_token::id(),
-  //       &client_x_token_account.pubkey(),
-  //       &mint_x.pubkey(),
-  //       &authority.pubkey(),
-  //     )
-  //     .unwrap(),
-  //     spl_token::instruction::mint_to(
-  //       &spl_token::id(),
-  //       &mint_x.pubkey(),
-  //       &client_x_token_account.pubkey(),
-  //       &payer.pubkey(),
-  //       &[&payer.pubkey()],
-  //       1000,
-  //     )
-  //     .unwrap(),
-  //     // Create Alice's temp account.
-  //     system_instruction::create_account(
-  //       &payer.pubkey(),
-  //       &vault_lx_token_account.pubkey(),
-  //       1.max(Rent::default().minimum_balance(spl_token::state::Account::LEN)),
-  //       spl_token::state::Account::LEN as u64,
-  //       &spl_token::id(),
-  //     ),
-  //     spl_token::instruction::initialize_account(
-  //       &spl_token::id(),
-  //       &vault_lx_token_account.pubkey(),
-  //       &mint_x.pubkey(),
-  //       &client_x_token_account.pubkey(),
-  //     )
-  //     .unwrap(),
-  //   ],
-  //   Some(&payer.pubkey()),
-  // );
+// // Transfer 100 from Alice's account to her temp.
+// let mut transaction = Transaction::new_with_payer(
+//   &[spl_token::instruction::transfer(
+//     &spl_token::id(),
+//     &client_x_token_account.pubkey(),
+//     &vault_lx_token_account.pubkey(),
+//     &authority.pubkey(),
+//     &[&&authority.pubkey()],
+//     100,
+//   )
+//   .unwrap()],
+//   Some(&payer.pubkey()),
+// );
+// transaction.sign(&[&payer, &authority], recent_blockhash);
+// assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
 
-  // transaction.sign(
-  //   &[&payer, &client_x_token_account, &vault_lx_token_account],
-  //   recent_blockhash,
-  // );
-  // // Create Alice's account with 1000 $A & temp-account for escrow.
-  // assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+// // Verify some data on Alice's temp account for sanity checking & fun.
+// let alice_account_temp_account = banks_client
+//   .get_account(vault_lx_token_account.pubkey())
+//   .await
+//   .unwrap()
+//   .expect("Account unretrievable");
+// assert_eq!(alice_account_temp_account.owner, spl_token::id());
+// let internal_account =
+//   spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
+// assert_eq!(internal_account.owner, client_x_token_account.pubkey());
+// assert_matches!(
+//   internal_account.state,
+//   spl_token::state::AccountState::Initialized
+// );
 
-  // // Transfer 100 from Alice's account to her temp.
-  // let mut transaction = Transaction::new_with_payer(
-  //   &[spl_token::instruction::transfer(
-  //     &spl_token::id(),
-  //     &client_x_token_account.pubkey(),
-  //     &vault_lx_token_account.pubkey(),
-  //     &authority.pubkey(),
-  //     &[&&authority.pubkey()],
-  //     100,
-  //   )
-  //   .unwrap()],
-  //   Some(&payer.pubkey()),
-  // );
-  // transaction.sign(&[&payer, &authority], recent_blockhash);
-  // assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+// // // Create Escrow account
+// let mut transaction = Transaction::new_with_payer(
+//   &[
+//     // Create Alice's account & transfer 1000 $A.
+//     system_instruction::create_account(
+//       &payer.pubkey(),
+//       &vault_storage_account.pubkey(),
+//       1.max(Rent::default().minimum_balance(Vault::state::Escrow::LEN)),
+//       Vault::state::Escrow::LEN as u64,
+//       &Vault::id(),
+//     ),
+//     EscrowInstruction::initialize_escrow(
+//       &Vault::id(),
+//       &client_x_token_account.pubkey(),
+//       &vault_lx_token_account.pubkey(),
+//       &client_x_token_account.pubkey(), // Using Alice in lieu of Bob.
+//       &vault_storage_account.pubkey(),
+//       &spl_token::id(),
+//       100, // amount
+//     )
+//     .unwrap(),
+//   ],
+//   Some(&payer.pubkey()),
+// );
+// transaction.sign(
+//   &[
+//     &payer,
+//     &vault_storage_account,
+//     &client_x_token_account,
+//     // &vault_lx_token_account,
+//   ],
+//   recent_blockhash,
+// );
+// // Create Alice's account with 1000 $A & temp-account for escrow.
+// assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
+// // Verify some data on Alice's temp account for sanity checking & fun.
+// let alice_account_temp_account = banks_client
+//   .get_account(vault_lx_token_account.pubkey())
+//   .await
+//   .unwrap()
+//   .expect("Account unretrievable");
+// assert_eq!(alice_account_temp_account.owner, spl_token::id());
+// let internal_account =
+//   spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
+// let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], &Vault::id());
 
-  // // Verify some data on Alice's temp account for sanity checking & fun.
-  // let alice_account_temp_account = banks_client
-  //   .get_account(vault_lx_token_account.pubkey())
-  //   .await
-  //   .unwrap()
-  //   .expect("Account unretrievable");
-  // assert_eq!(alice_account_temp_account.owner, spl_token::id());
-  // let internal_account =
-  //   spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
-  // assert_eq!(internal_account.owner, client_x_token_account.pubkey());
-  // assert_matches!(
-  //   internal_account.state,
-  //   spl_token::state::AccountState::Initialized
-  // );
-
-  // // // Create Escrow account
-  // let mut transaction = Transaction::new_with_payer(
-  //   &[
-  //     // Create Alice's account & transfer 1000 $A.
-  //     system_instruction::create_account(
-  //       &payer.pubkey(),
-  //       &vault_storage_account.pubkey(),
-  //       1.max(Rent::default().minimum_balance(Vault::state::Escrow::LEN)),
-  //       Vault::state::Escrow::LEN as u64,
-  //       &Vault::id(),
-  //     ),
-  //     EscrowInstruction::initialize_escrow(
-  //       &Vault::id(),
-  //       &client_x_token_account.pubkey(),
-  //       &vault_lx_token_account.pubkey(),
-  //       &client_x_token_account.pubkey(), // Using Alice in lieu of Bob.
-  //       &vault_storage_account.pubkey(),
-  //       &spl_token::id(),
-  //       100, // amount
-  //     )
-  //     .unwrap(),
-  //   ],
-  //   Some(&payer.pubkey()),
-  // );
-  // transaction.sign(
-  //   &[
-  //     &payer,
-  //     &vault_storage_account,
-  //     &client_x_token_account,
-  //     // &vault_lx_token_account,
-  //   ],
-  //   recent_blockhash,
-  // );
-  // // Create Alice's account with 1000 $A & temp-account for escrow.
-  // assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
-  // // Verify some data on Alice's temp account for sanity checking & fun.
-  // let alice_account_temp_account = banks_client
-  //   .get_account(vault_lx_token_account.pubkey())
-  //   .await
-  //   .unwrap()
-  //   .expect("Account unretrievable");
-  // assert_eq!(alice_account_temp_account.owner, spl_token::id());
-  // let internal_account =
-  //   spl_token::state::Account::unpack(&alice_account_temp_account.data).unwrap();
-  // let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], &Vault::id());
-
-  // // Ensure that the escrow account's ownership
-  // assert_eq!(internal_account.owner, pda);
+// // Ensure that the escrow account's ownership
+// assert_eq!(internal_account.owner, pda);

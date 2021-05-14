@@ -9,8 +9,6 @@ pub enum VaultError {
     InvalidInstruction,
     #[error("Not Rent Exempt")]
     NotRentExempt,
-    #[error("Invalid minter provided")]
-    InvalidMinter,
     #[error("Not Implemented")]
     NotImplemented,
 }

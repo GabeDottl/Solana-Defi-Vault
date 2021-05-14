@@ -7,10 +7,12 @@ Within Yearn, the derivative of a X token would be yX - within Laguna Finance, w
 for 2nd order derivatives.
 
 ## TODO
-* Cleanup
+* Cleanup / merge the various Deposits & Withdraw logic
 * Unit tests
 * Security audit
 * More example vaults
+* Add fees
+* Add governance? Or put this a level above.
 
 ### Environment Setup
 1. Install Rust from https://rustup.rs/
