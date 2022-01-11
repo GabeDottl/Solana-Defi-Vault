@@ -1,5 +1,7 @@
+January 2022, Author's note: This code was created initially concieved as an SSI platform on Solana (similar to Civic.com) - see the older commits. It evolved into a defi Vault application for the Solana Season hackathon Summer 2021 before being abandoned. It's now open-source, closed license to serve as an example (and perhaps platform) for creating new Solana Defi projects. Hack & Fork away :) - reach out before using the code commercially.
+
 # Cove
-Cove is a platform for Laguna (Solana) Vaults.
+Cove was a platform for Solana Yearn-like Vaults.
 
 See src/instructions.rs for the API.
 
@@ -7,12 +9,16 @@ Within Yearn, the derivative of a X token would be yX - within Laguna Finance, w
 for 2nd order derivatives.
 
 Laguna Vaults are intended to be combined to form directed, acyclic investment graphs of arbitrary
-complexity. Fees may be charged and routed at any level of the graph and, in the future, the graph
+complexity. Fees may be charged and routed at any level of the graph. In the future, the graph
 will be able to react to arbitrary events.
 
 The core benefit of Laguna Vaults are that they mint & distribute a derivative token to users when
 depositing proportional to a best-estimate of their contribution to the current underlying value.
 This makes it trivial, for example, to create arbitrary wrapper-tokens (like stETH, wETH).
+
+This system is implemented with both functional and unit-tests and those are the best mechanism for understanding and verifying functionality.
+
+The frontend was partially hacked together from another Solana project but was never completed and is still(?) private source.
 
 ## TODO
 * TODO(003): Implement strategy withdraw/deposit
